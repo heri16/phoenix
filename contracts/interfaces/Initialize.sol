@@ -1,0 +1,93 @@
+// SPDX-License-Identifier: BUSL-1.1
+pragma solidity ^0.8.30;
+
+import {IPool} from "contracts/interfaces/IPool.sol";
+import {Market, MarketId} from "contracts/libraries/Market.sol";
+
+/**
+ * @title Initialize Interface
+ * @author Cork Team
+ * @notice Initialize interface for providing Initialization related functions through CorkPool contract
+ */
+interface Initialize {
+    /**
+     * @notice initialize a new pool, this will initialize Cork Pool and Liquidity Vault and deploy new LV token
+     * @dev Only callable by config contract Deploy new CPT and CST tokens for the market
+     * @param referenceAsset address of Reference Asset token(e.g stETH)
+     * @param collateralAsset address of Collateral Asset token(e.g WETH)
+     * @param expiryTimestamp expiry timestamp for Swap Token, this is the exact time in unix epoch timestamp in seconds of when the Swap Token should expires
+     * @param exchangeRateProvider address of IExchangeRateProvider contract
+     */
+    function createNewMarket(address referenceAsset, address collateralAsset, uint256 expiryTimestamp, address exchangeRateProvider) external;
+
+    /**
+     * @notice update Cork Pool unwindSwap fee rate for a pair
+     * @dev Only callable by config contract
+     * @param id id of the pair
+     * @param newUnwindSwapFeePercentage new value of unwindSwap fees, make sure it has 18 decimals(e.g 1% = 1e18)
+     */
+    function updateUnwindSwapFeeRate(MarketId id, uint256 newUnwindSwapFeePercentage) external;
+
+    /**
+     * @notice update Cork Pool base redemption fee percentage
+     * @param newBaseRedemptionFeePercentage new value of base redemption fees, make sure it has 18 decimals(e.g 1% = 1e18)
+     */
+    function updateBaseRedemptionFeePercentage(MarketId id, uint256 newBaseRedemptionFeePercentage) external;
+
+    /**
+     * @notice get next expiry time from id
+     * @param id id of the pair
+     * @return expiry next expiry time in seconds
+     */
+    function expiry(MarketId id) external view returns (uint256 expiry);
+
+    /**
+     * @notice returns the address of the underlying Collateral Asset and Reference Asset token
+     * @param id the id of Cork Pool
+     * @return collateralAsset address of the underlying Collateral Asset token
+     * @return referenceAsset address of the underlying Reference Asset token
+     */
+    function underlyingAsset(MarketId id) external view returns (address collateralAsset, address referenceAsset);
+
+    /**
+     * @notice returns the address of Principal Token and Swap Token associated with a certain Swap Token id
+     * @param id the id of Cork Pool
+     * @return principalToken address of the Principal Token token
+     * @return swapToken address of the Swap Token token
+     */
+    function shares(MarketId id) external view returns (address principalToken, address swapToken);
+
+    /**
+     * @notice Generates a unique market ID from market parameters
+     * @param referenceAsset The address of the reference asset (e.g., ETH for depeg protection)
+     * @param collateralAsset The address of the collateral asset (e.g., stETH)
+     * @param expiry The expiry timestamp for the market
+     * @param exchangeRateProvider The address of the exchange rate provider
+     * @return marketId The unique market identifier
+     */
+    function getId(address referenceAsset, address collateralAsset, uint256 expiry, address exchangeRateProvider) external pure returns (MarketId marketId);
+
+    /**
+     * @notice Gets the market information for a given market ID
+     * @param id The market identifier
+     * @return market The complete market structure containing all market details
+     */
+    function market(MarketId id) external view returns (Market memory market);
+
+    /**
+     * @notice Gets the core details of a market
+     * @param id The market identifier
+     * @return referenceAsset The address of the reference asset
+     * @return collateralAsset The address of the collateral asset
+     * @return expiryTimestamp The timestamp when the market expires
+     * @return exchangeRateProvider The address of the exchange rate provider
+     */
+    function marketDetails(MarketId id) external view returns (address referenceAsset, address collateralAsset, uint256 expiryTimestamp, address exchangeRateProvider);
+
+    /// @notice Emitted when a new LV and Cork Pool is initialized with a given pair
+    /// @param id The Cork Pool id
+    /// @param referenceAsset The address of the pegged asset
+    /// @param collateralAsset The address of the redemption asset
+    /// @param expiry The expiry interval of the Swap Token
+    event MarketCreated(MarketId indexed id, address indexed referenceAsset, address indexed collateralAsset, uint256 expiry, address exchangeRateProvider, address principalToken, address swapToken);
+}

@@ -1,0 +1,34 @@
+[profile.default]
+src = "contracts"
+evm_version = "cancun"
+out = "out"
+libs = ["node_modules", "lib"]
+test = "test"
+cache_path = "cache_forge"
+ffi = true
+ast = true
+build_info = true
+extra_output = ["storageLayout"]
+optimizer = true
+optimizer_runs = 200
+solc_version = "0.8.30"
+fs_permissions = [{ access = "read", path = "./" }]
+sparse_mode = true
+ignored_warnings_from = ["test", "script"]
+
+
+# Compile only the production code with IR see https://github.com/foundry-rs/forge-std/issues/321#issuecomment-1462351522
+[profile.optimized]
+out = "optimized-out"
+test = "test"
+via_ir = true
+optimizer = true
+optimizer_runs = 200
+
+[fmt]
+single_line_statement_blocks = "single"
+sort_imports = true
+line_length = 300
+int_types = "long"
+quote_stle = "double" 
+number_underscore = "thousands"
