@@ -47,6 +47,6 @@ contract CorkPoolPauseStatusIntegrationTest is Helper {
 
         vm.expectRevert(IErrors.Paused.selector);
         // Replace with actual cancelPosition if available
-        corkPool.unwindDeposit(defaultCurrencyId, 0.01 ether);
+        corkPool.unwindDeposit(defaultCurrencyId, 0.01 ether, address(this), address(this));
     }
 }

@@ -58,4 +58,26 @@ interface IErrors {
 
     /// @notice thrown when input amount exceeds maximum allowed
     error ExcessiveInput(uint256 inputAmount, uint256 maxAllowed);
+
+    error UnauthorizedSender();
+
+    error AdapterAddress();
+
+    error ZeroAmount();
+
+    error DeadlineExceeded();
+
+    error SlippageExceeded();
+
+    /// @notice thrown when input amount exceeds maximum amount allowed
+    error ExceedInput(uint256 inputAmount, uint256 maxAllowed);
+
+    /// @notice Thrown when the shares amount is too small and would result in 0 output due to decimals rounding
+    error InsufficientSharesAmount(uint256 minimumRequired, uint256 provided);
+
+    /// @notice Thrown when a non-zero input would result in zero output due to rounding
+    error ZeroOutput();
+
+    /// @notice thrown when withdraw amount is invalid, e.g trying to withdraw 100 CPT/100 CST but only capable of withdrawing 50 CPT/50 CST
+    error InvalidWithdrawAmount(uint256 expected, uint256 actual);
 }

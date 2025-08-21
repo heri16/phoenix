@@ -1,47 +1,56 @@
 pragma solidity ^0.8.30;
 
-import {ExchangeRateProvider} from "./../../contracts/core/ExchangeRateProvider.sol";
 import {SigUtils} from "./SigUtils.sol";
-import {TestCorkPool} from "./TestCorkPool.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
+import {ConstraintAdapter} from "contracts/core/ConstraintAdapter.sol";
 import {CorkConfig} from "contracts/core/CorkConfig.sol";
-import {CorkPool} from "contracts/core/CorkPool.sol";
 import {SharesFactory} from "contracts/core/assets/SharesFactory.sol";
+import {IRateOracle} from "contracts/interfaces/IRateOracle.sol";
 import {Market, MarketId, MarketLibrary} from "contracts/libraries/Market.sol";
-import {Test} from "forge-std/Test.sol";
-import {console} from "forge-std/console.sol";
-import {DummyERCWithPermit} from "test/forge/utils/dummy/DummyERCWithPermit.sol";
-import {DummyWETH} from "test/forge/utils/dummy/DummyWETH.sol";
-
-contract CustomErc20 is DummyWETH {
-    uint8 internal __decimals;
-
-    constructor(uint8 _decimals) DummyWETH() {
-        __decimals = _decimals;
-    }
-
-    function decimals() public view override returns (uint8) {
-        return __decimals;
-    }
-}
+import {CorkPoolAdapter} from "contracts/periphery/CorkPoolAdapter.sol";
+import {MockBundler3} from "test/forge/utils/MockBundler3.sol";
+import {CorkPoolMock} from "test/mocks/CorkPoolMock.sol";
+import {DummyERC20} from "test/mocks/DummyERC20.sol";
+import {DummyWETH, ERC20Mock} from "test/mocks/DummyWETH.sol";
+import {ERC20WithPermitMock} from "test/mocks/ERC20WithPermitMock.sol";
+import {RateOracleMock} from "test/mocks/RateOracleMock.sol";
 
 abstract contract Helper is SigUtils {
-    TestCorkPool internal corkPool;
+    using MarketLibrary for Market;
+
+    CorkPoolMock internal corkPool;
     SharesFactory internal sharesFactory;
     CorkConfig internal corkConfig;
-    EnvGetters internal env = new EnvGetters();
+    CorkPoolAdapter internal corkPoolAdapter;
+    address DEFAULT_ADDRESS = address(90);
+
+    MockBundler3 internal mockBundler = MockBundler3(DEFAULT_ADDRESS);
+    // EnvGetters internal env = new EnvGetters();
+
+    ConstraintAdapter internal constraintAdapter;
+    RateOracleMock internal testOracle = new RateOracleMock();
 
     MarketId defaultCurrencyId;
 
     // 1% base redemption fee
     uint256 internal constant DEFAULT_BASE_REDEMPTION_FEE = 1 ether;
 
-    uint256 internal constant DEFAULT_EXCHANGE_RATES = 1 ether;
+    uint256 internal constant DEFAULT_ORACLE_RATE = 1 ether;
+    uint256 internal constant DEFAULT_RATE_MIN = 0.9 ether;
+    uint256 internal constant DEFAULT_RATE_MAX = 1.1 ether;
+    uint256 internal constant DEFAULT_RATE_CHANGE_PER_DAY_MAX = 1 ether;
+    uint256 internal constant DEFAULT_RATE_CHANGE_CAPACITY_MAX = 1 ether;
 
     // 1% unwindSwap fee
     uint256 internal constant DEFAULT_REVERSE_SWAP_FEE = 1 ether;
 
-    address DEFAULT_ADDRESS = address(1);
+    // we're doing test in an isolated environment.
+    // the current tests already uses `DEFAULT_ADDRESS` as the bundler3 address.
+    // this is to simplify the testing processes.
+    address BUNDLER3_ADDRESS = DEFAULT_ADDRESS;
+
+    // Wrapped Native Token Addresses
+    address W_NATIVE_ADDRESS = 0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2;
 
     // 10% initial swapToken price
     uint256 internal constant DEFAULT_INITIAL_DS_PRICE = 0.1 ether;
@@ -54,9 +63,11 @@ abstract contract Helper is SigUtils {
 
     address private overridenAddress;
 
+    uint256 private snapshotId;
+
     function overridePrank(address _as) public {
-        (, address currentCaller,) = vm.readCallers();
-        overridenAddress = currentCaller;
+        (, address _currentCaller,) = vm.readCallers();
+        overridenAddress = _currentCaller;
         vm.startPrank(_as);
     }
 
@@ -67,12 +78,51 @@ abstract contract Helper is SigUtils {
         overridenAddress = address(0);
     }
 
-    function currentCaller() internal returns (address currentCaller) {
-        (, currentCaller,) = vm.readCallers();
+    function currentCaller() internal returns (address _currentCaller) {
+        (, _currentCaller,) = vm.readCallers();
     }
 
-    function defaultExchangeRate() internal pure virtual returns (uint256) {
-        return DEFAULT_EXCHANGE_RATES;
+    function snapshotState() internal {
+        snapshotId = vm.snapshotState();
+    }
+
+    function revertState() internal {
+        vm.revertToState(snapshotId);
+    }
+
+    function deployConstraintAdapter() internal {
+        address _constraintAdapter = address(new ConstraintAdapter());
+
+        ERC1967Proxy constraintAdapterProxy = new ERC1967Proxy(_constraintAdapter, "");
+        constraintAdapter = ConstraintAdapter(address(constraintAdapterProxy));
+    }
+
+    function initializeConstraintAdapter() internal {
+        constraintAdapter.initialize(DEFAULT_ADDRESS, address(corkPool));
+    }
+
+    function defaultOracleRate() internal pure virtual returns (uint256) {
+        return DEFAULT_ORACLE_RATE;
+    }
+
+    function defaultRateMin() internal pure virtual returns (uint256) {
+        return DEFAULT_RATE_MIN;
+    }
+
+    function defaultRateMax() internal pure virtual returns (uint256) {
+        return DEFAULT_RATE_MAX;
+    }
+
+    function defaultRateChangePerDayMax() internal pure virtual returns (uint256) {
+        return DEFAULT_RATE_CHANGE_PER_DAY_MAX;
+    }
+
+    function defaultRateChangeCapacityMax() internal pure virtual returns (uint256) {
+        return DEFAULT_RATE_CHANGE_CAPACITY_MAX;
+    }
+
+    function defaultAdapterCorkPool() internal view virtual returns (address) {
+        return DEFAULT_ADDRESS;
     }
 
     function deploySharesFactory() internal {
@@ -84,72 +134,64 @@ abstract contract Helper is SigUtils {
         sharesFactory.setCorkPool(address(corkPool));
     }
 
-    function _createNewMarket(address referenceAsset, address collateralAsset, uint256 baseRedemptionFee, uint256 expiryInSeconds, uint256 unwindSwapFeePercentage) internal {
-        address exchangeRateProvider = address(corkConfig.defaultExchangeRateProvider());
+    function _createNewMarket(Market memory market, uint256 baseRedemptionFee, uint256 unwindSwapFeePercentage) internal {
+        address rateOracle = address(testOracle);
 
-        corkConfig.updateCorkPoolRate(defaultCurrencyId, defaultExchangeRate());
-        corkConfig.createNewMarket(referenceAsset, collateralAsset, expiryInSeconds, exchangeRateProvider);
+        testOracle.setRate(defaultCurrencyId, defaultOracleRate());
+        corkConfig.createNewMarket(market.referenceAsset, market.collateralAsset, market.expiryTimestamp, rateOracle, market.rateMin, market.rateMax, market.rateChangePerDayMax, market.rateChangeCapacityMax);
         corkConfig.updateBaseRedemptionFeePercentage(defaultCurrencyId, baseRedemptionFee);
         corkConfig.updateUnwindSwapFeeRate(defaultCurrencyId, unwindSwapFeePercentage);
     }
 
-    function createNewMarket(address referenceAsset, address collateralAsset, uint256 expiryInSeconds) internal {
-        _createNewMarket(referenceAsset, collateralAsset, DEFAULT_BASE_REDEMPTION_FEE, expiryInSeconds, DEFAULT_REVERSE_SWAP_FEE);
-    }
-
-    function createNewMarketPair(uint256 expiryInSeconds) internal returns (DummyWETH collateralAsset, DummyWETH referenceAsset, MarketId id) {
+    function createNewMarketPair(uint256 expiryInSeconds) internal returns (ERC20Mock collateralAsset, ERC20Mock referenceAsset, MarketId poolId) {
         collateralAsset = new DummyWETH();
         referenceAsset = new DummyWETH();
-        Market memory _id = MarketLibrary.initialize(address(referenceAsset), address(collateralAsset), expiryInSeconds, address(corkConfig.defaultExchangeRateProvider()));
-        id = MarketLibrary.toId(_id);
+        Market memory _poolId = MarketLibrary.initialize(address(referenceAsset), address(collateralAsset), expiryInSeconds, address(testOracle), defaultRateMin(), defaultRateMax(), defaultRateChangePerDayMax(), defaultRateChangeCapacityMax());
+        poolId = MarketLibrary.toId(_poolId);
     }
 
-    function initializeAndIssueNewSwapTokenWithRaAsPermit(uint256 expiryInSeconds) internal returns (DummyERCWithPermit collateralAsset, DummyERCWithPermit referenceAsset, MarketId id) {
-        if (block.timestamp + expiryInSeconds > block.timestamp + 100 days) revert("Expiry too far in the future, specify a default decay rate, this will cause the discount to exceed 100!");
+    function initializeAndIssueNewSwapTokenWithRaAsPermit(uint256 expiryTimestamp) internal returns (ERC20WithPermitMock collateralAsset, ERC20WithPermitMock referenceAsset, MarketId poolId) {
+        collateralAsset = new ERC20WithPermitMock("Collateral Asset", "CA");
+        referenceAsset = new ERC20WithPermitMock("Reference Asset", "REF");
 
-        collateralAsset = new DummyERCWithPermit("Collateral Asset", "Collateral Asset");
-        referenceAsset = new DummyERCWithPermit("Reference Asset", "Reference Asset");
+        address rateOracle = address(testOracle);
+        Market memory marketParams = MarketLibrary.initialize(address(referenceAsset), address(collateralAsset), expiryTimestamp, rateOracle, defaultRateMin(), defaultRateMax(), defaultRateChangePerDayMax(), defaultRateChangeCapacityMax());
+        poolId = marketParams.toId();
 
-        address exchangeRateProvider = address(corkConfig.defaultExchangeRateProvider());
-        Market memory _id = MarketLibrary.initialize(address(referenceAsset), address(collateralAsset), expiryInSeconds, exchangeRateProvider);
-        id = MarketLibrary.toId(_id);
+        defaultCurrencyId = poolId;
 
-        defaultCurrencyId = id;
-
-        _createNewMarket(address(referenceAsset), address(collateralAsset), DEFAULT_BASE_REDEMPTION_FEE, expiryInSeconds, DEFAULT_REVERSE_SWAP_FEE);
+        _createNewMarket(marketParams, DEFAULT_BASE_REDEMPTION_FEE, DEFAULT_REVERSE_SWAP_FEE);
     }
 
-    function createMarket(uint256 expiryInSeconds) internal returns (DummyWETH collateralAsset, DummyWETH referenceAsset, MarketId id) {
+    function createMarket(uint256 expiryInSeconds) internal returns (ERC20Mock collateralAsset, ERC20Mock referenceAsset, MarketId poolId) {
         return createMarket(expiryInSeconds, DEFAULT_REVERSE_SWAP_FEE, DEFAULT_BASE_REDEMPTION_FEE, 18, 18);
     }
 
-    function createMarket(uint256 expiryInSeconds, uint256 baseRedemptionFee) internal returns (DummyWETH collateralAsset, DummyWETH referenceAsset, MarketId id) {
-        if (block.timestamp + expiryInSeconds > block.timestamp + 100 days) revert("Expiry too far in the future, specify a default decay rate, this will cause the discount to exceed 100!");
+    function createMarket(uint256 expiryInSeconds, uint256 baseRedemptionFee) internal returns (ERC20Mock collateralAsset, ERC20Mock referenceAsset, MarketId poolId) {
         return createMarket(expiryInSeconds, DEFAULT_REVERSE_SWAP_FEE, baseRedemptionFee, 18, 18);
     }
 
-    function createMarket(uint256 expiryInSeconds, uint8 raDecimals, uint8 paDecimals) internal returns (DummyWETH collateralAsset, DummyWETH referenceAsset, MarketId id) {
-        if (block.timestamp + expiryInSeconds > block.timestamp + 100 days) revert("Expiry too far in the future, specify a default decay rate, this will cause the discount to exceed 100!");
+    function createMarket(uint256 expiryInSeconds, uint8 raDecimals, uint8 paDecimals) internal returns (ERC20Mock collateralAsset, ERC20Mock referenceAsset, MarketId poolId) {
         return createMarket(expiryInSeconds, DEFAULT_REVERSE_SWAP_FEE, DEFAULT_BASE_REDEMPTION_FEE, raDecimals, paDecimals);
     }
 
-    function createMarket(uint256 expiryInSeconds, uint256 unwindSwapFeePercentage, uint256 baseRedemptionFee, uint8 raDecimals, uint8 paDecimals) internal returns (DummyWETH collateralAsset, DummyWETH referenceAsset, MarketId id) {
+    function createMarket(uint256 expiryTimestamp, uint256 unwindSwapFeePercentage, uint256 baseRedemptionFee, uint8 raDecimals, uint8 paDecimals) internal returns (ERC20Mock collateralAsset, ERC20Mock referenceAsset, MarketId poolId) {
         if (raDecimals == 18 && paDecimals == 18) {
             collateralAsset = new DummyWETH();
             referenceAsset = new DummyWETH();
         } else {
-            collateralAsset = new CustomErc20(raDecimals);
-            referenceAsset = new CustomErc20(paDecimals);
+            collateralAsset = new DummyERC20("Collateral Asset", "CA", raDecimals);
+            referenceAsset = new DummyERC20("Reference Asset", "REF", paDecimals);
         }
 
-        address exchangeRateProvider = address(corkConfig.defaultExchangeRateProvider());
+        address rateOracle = address(testOracle);
 
-        Market memory _id = MarketLibrary.initialize(address(referenceAsset), address(collateralAsset), expiryInSeconds, exchangeRateProvider);
-        id = MarketLibrary.toId(_id);
+        Market memory marketParams = MarketLibrary.initialize(address(referenceAsset), address(collateralAsset), expiryTimestamp, rateOracle, defaultRateMin(), defaultRateMax(), defaultRateChangePerDayMax(), defaultRateChangeCapacityMax());
+        poolId = marketParams.toId();
 
-        defaultCurrencyId = id;
+        defaultCurrencyId = poolId;
 
-        _createNewMarket(address(referenceAsset), address(collateralAsset), baseRedemptionFee, expiryInSeconds, unwindSwapFeePercentage);
+        _createNewMarket(marketParams, baseRedemptionFee, unwindSwapFeePercentage);
     }
 
     function deployConfig(address admin, address manager) internal {
@@ -161,16 +203,28 @@ abstract contract Helper is SigUtils {
         corkConfig.setTreasury(CORK_PROTOCOL_TREASURY);
     }
 
-    function createNewMarket() internal {
-        corkPool.initialize(address(sharesFactory), address(corkConfig));
+    function deployPeriphery() internal {
+        // Deploy MockBundler3 at DEFAULT_ADDRESS to handle initiator() calls
+        MockBundler3 bundler = new MockBundler3();
+        vm.etch(DEFAULT_ADDRESS, address(bundler).code);
+        mockBundler.setInitiator(DEFAULT_ADDRESS);
+
+        corkPoolAdapter = new CorkPoolAdapter(BUNDLER3_ADDRESS, W_NATIVE_ADDRESS, address(corkPool));
     }
 
     function deployContracts(address admin, address manager) internal {
         deployConfig(admin, manager);
         deploySharesFactory();
 
-        ERC1967Proxy corkPoolProxy = new ERC1967Proxy(address(new TestCorkPool()), abi.encodeWithSignature("initialize(address,address)", address(sharesFactory), address(corkConfig)));
-        corkPool = TestCorkPool(address(corkPoolProxy));
+        corkPool = new CorkPoolMock();
+
+        deployConstraintAdapter();
+
+        ERC1967Proxy corkPoolProxy = new ERC1967Proxy(address(corkPool), abi.encodeWithSignature("initialize(address,address,address)", address(sharesFactory), address(corkConfig), address(constraintAdapter)));
+        corkPool = CorkPoolMock(address(corkPoolProxy));
+
+        initializeConstraintAdapter();
+
         setupSharesFactory();
         setupConfig();
     }
@@ -178,32 +232,6 @@ abstract contract Helper is SigUtils {
     function __workaround() internal {
         PrankWorkAround _contract = new PrankWorkAround();
         _contract.prankApply();
-    }
-
-    function envStringNoRevert(string memory key) internal view returns (string memory) {
-        try env.envString(key) returns (string memory value) {
-            return value;
-        } catch {
-            return "";
-        }
-    }
-
-    function envUintNoRevert(string memory key) internal view returns (uint256) {
-        try env.envUint(key) returns (uint256 value) {
-            return value;
-        } catch {
-            return 0;
-        }
-    }
-}
-
-contract EnvGetters is Test {
-    function envString(string memory key) public view returns (string memory) {
-        return vm.envString(key);
-    }
-
-    function envUint(string memory key) public view returns (uint256) {
-        return vm.envUint(key);
     }
 }
 

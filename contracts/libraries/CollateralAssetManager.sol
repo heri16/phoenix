@@ -10,7 +10,6 @@ import {IErrors} from "contracts/interfaces/IErrors.sol";
 struct CollateralAssetManager {
     address _address;
     uint256 locked;
-    uint256 free;
 }
 
 /**
@@ -22,30 +21,27 @@ library CollateralAssetManagerLibrary {
     using SafeERC20 for IERC20;
 
     function initialize(address collateralAsset) internal pure returns (CollateralAssetManager memory) {
-        if (collateralAsset == address(0)) revert IErrors.ZeroAddress();
-        return CollateralAssetManager(collateralAsset, 0, 0);
+        require(collateralAsset != address(0), IErrors.ZeroAddress());
+        return CollateralAssetManager(collateralAsset, 0);
     }
 
     function reset(CollateralAssetManager storage self) internal {
         self.locked = 0;
-        self.free = 0;
     }
 
     function increaseLocked(CollateralAssetManager storage self, uint256 amount) internal {
         self.locked = self.locked + amount;
     }
 
-    function convertAllToFree(CollateralAssetManager storage self) internal returns (uint256) {
-        if (self.locked == 0) return self.free;
+    function convertAllToFree(CollateralAssetManager storage self) internal returns (uint256 unlockedAmount) {
+        if (self.locked == 0) return 0;
 
-        self.free = self.free + self.locked;
+        unlockedAmount = self.locked;
         self.locked = 0;
-
-        return self.free;
     }
 
     function decreaseLocked(CollateralAssetManager storage self, uint256 amount) internal {
-        if (amount > self.locked) revert IErrors.InvalidAmount();
+        require(amount <= self.locked, IErrors.InvalidAmount());
         self.locked = self.locked - amount;
     }
 

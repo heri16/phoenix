@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: BUSL-1.1
 pragma solidity ^0.8.30;
 
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {UD60x18, convert, div, mul, sub, ud, unwrap} from "@prb/math/src/UD60x18.sol";
+import "forge-std/console.sol";
 
 /**
  * @title MathHelper Library Contract
@@ -10,14 +12,14 @@ import {UD60x18, convert, div, mul, sub, ud, unwrap} from "@prb/math/src/UD60x18
  */
 library MathHelper {
     /**
-     * @dev amount = referenceAsset x exchangeRate
-     * calculate how much Swap Token(need to be provided) and Collateral Asset(user will receive) in respect to the exchange rate
+     * @dev amount = referenceAsset x swapRate
+     * calculate how much Swap Token(need to be provided) and Collateral Asset(user will receive) in respect to the swap rate
      * @param referenceAsset the amount of referenceAsset user provides
-     * @param exchangeRate the current exchange rate between Collateral Asset:(Principal Token+Swap Token)
+     * @param swapRate the current swap rate
      * @return amount the amount of Collateral Asset user will receive & Swap Token needs to be provided
      */
-    function calculateEqualSwapAmount(uint256 referenceAsset, uint256 exchangeRate) external pure returns (uint256 amount) {
-        amount = unwrap(mul(ud(referenceAsset), ud(exchangeRate)));
+    function calculateEqualSwapAmount(uint256 referenceAsset, uint256 swapRate) external pure returns (uint256 amount) {
+        amount = unwrap(mul(ud(referenceAsset), ud(swapRate)));
     }
 
     /**
@@ -26,18 +28,22 @@ library MathHelper {
      * @param amount the amount for which the fee is calculated
      */
     function calculatePercentageFee(uint256 fee1e18, uint256 amount) external pure returns (uint256 feeAmount) {
-        UD60x18 fee = calculatePercentage(ud(amount), ud(fee1e18));
+        UD60x18 fee = div(mul(ud(amount), ud(fee1e18)), convert(100));
         return unwrap(fee);
     }
 
     /**
-     * @dev calculate how much reference asset + swapToken user will receive based on the amount of the current exchange rate
+     * @dev calculate how much reference asset + swapToken user will receive based on the current swap rate
      * @param amount  the amount of user deposit
-     * @param exchangeRate the current exchange rate between Collateral Asset:(Principal Token+Swap Token)
+     * @param swapRate the current swap rate
      */
-    function calculateDepositAmountWithExchangeRate(uint256 amount, uint256 exchangeRate) public pure returns (uint256) {
-        UD60x18 _amount = div(ud(amount), ud(exchangeRate));
-        return unwrap(_amount);
+    function calculateDepositAmountWithSwapRate(uint256 amount, uint256 swapRate, bool isRoundUp) public pure returns (uint256) {
+        if (isRoundUp) {
+            return Math.mulDiv(amount, 1e18, swapRate, Math.Rounding.Ceil);
+        } else {
+            UD60x18 _amount = div(ud(amount), ud(swapRate));
+            return unwrap(_amount);
+        }
     }
 
     /// @notice calculate the accrued Reference Asset & Collateral Asset
@@ -45,15 +51,16 @@ library MathHelper {
     /// '#' refers to the total circulation supply of that token.
     /// '&' refers to the total amount of token in the Cork Pool.
     ///
-    /// amount * (&Reference Asset or &Collateral Asset/#Principal Token)
+    /// amount * &Reference Asset or &Collateral Asset / #Principal Token
     function calculateAccrued(uint256 amount, uint256 available, uint256 totalPrincipalTokenIssued) internal pure returns (uint256 accrued) {
-        UD60x18 _accrued = mul(ud(amount), div(ud(available), ud(totalPrincipalTokenIssued)));
+        if (amount == 0 || totalPrincipalTokenIssued == 0) return 0;
+        UD60x18 _accrued = div(mul(ud(amount), ud(available)), ud(totalPrincipalTokenIssued));
         return unwrap(_accrued);
     }
 
     /// @notice returns the normalized time to maturity from 1-0
     /// 1 means we're at the start of the period, 0 means we're at the end
-    function computeT(UD60x18 start, UD60x18 end, UD60x18 current) public pure returns (UD60x18) {
+    function computeT(UD60x18 start, UD60x18 end, UD60x18 current) internal pure returns (UD60x18) {
         UD60x18 minimumElapsed = convert(1);
 
         UD60x18 elapsedTime = sub(current, start);
@@ -67,7 +74,7 @@ library MathHelper {
         return sub(convert(1), div(elapsedTime, totalDuration));
     }
 
-    function calculateUnwindSwapWithFee(uint256 _start, uint256 _end, uint256 _current, uint256 _amount, uint256 _baseFeePercentage) internal pure returns (uint256 _fee, uint256 _assetIn) {
+    function calculateGrossAmountWithTimeDecayFee(uint256 _start, uint256 _end, uint256 _current, uint256 _amount, uint256 _baseFeePercentage) internal pure returns (uint256 _fee, uint256 _assetIn) {
         if (_amount == 0) return (0, 0);
 
         UD60x18 t = computeT(convert(_start), convert(_end), convert(_current));
@@ -81,8 +88,14 @@ library MathHelper {
         _assetIn = unwrap(withFee);
     }
 
-    function calculatePercentage(UD60x18 amount, UD60x18 percentage) internal pure returns (UD60x18 result) {
-        result = div(mul(amount, percentage), convert(100));
+    function calculateTimeDecayFee(uint256 _start, uint256 _end, uint256 _current, uint256 _amount, uint256 _baseFeePercentage) internal pure returns (uint256 _fee) {
+        if (_amount == 0) return (0);
+
+        UD60x18 t = computeT(convert(_start), convert(_end), convert(_current));
+
+        UD60x18 feeFactor = mul(ud(_baseFeePercentage), t);
+
+        _fee = unwrap(div(mul(ud(_amount), feeFactor), convert(100)));
     }
 
     /// @notice calculate the required shares needed to get a specific amount of assets
@@ -90,14 +103,14 @@ library MathHelper {
     /// amount = shares * (available / totalPrincipalTokenIssued)
     /// therefore: shares = amount * (totalPrincipalTokenIssued / available)
     function calculateSharesNeeded(uint256 amount, uint256 available, uint256 totalPrincipalTokenIssued) internal pure returns (uint256 shares) {
-        UD60x18 _shares = mul(ud(amount), div(ud(totalPrincipalTokenIssued), ud(available)));
-        return unwrap(_shares);
+        if (amount == 0 || totalPrincipalTokenIssued == 0 || available == 0) return 0;
+        shares = Math.ceilDiv(amount * totalPrincipalTokenIssued, available);
     }
 
     /// @notice calculate the gross amount needed before fee deduction to achieve a desired net amount
     /// @dev grossAmount = desiredAmount ÷ (1 - feeRate)
     /// @param desiredAmount the amount you want to receive after fees
-    /// @param feeRate the fee percentage in 1e18 format (e.g., 0.05e18 = 5%)
+    /// @param feeRate the fee percentage in 1e18 format (e.g., 5e18 = 5%)
     /// @return grossAmount the gross amount needed before fee deduction
     function calculateGrossAmountBeforeFee(uint256 desiredAmount, uint256 feeRate) external pure returns (uint256 grossAmount) {
         // Calculate (1 - feeRate)

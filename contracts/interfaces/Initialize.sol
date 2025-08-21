@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: BUSL-1.1
 pragma solidity ^0.8.30;
 
-import {IPool} from "contracts/interfaces/IPool.sol";
 import {Market, MarketId} from "contracts/libraries/Market.sol";
 
 /**
@@ -16,9 +15,9 @@ interface Initialize {
      * @param referenceAsset address of Reference Asset token(e.g stETH)
      * @param collateralAsset address of Collateral Asset token(e.g WETH)
      * @param expiryTimestamp expiry timestamp for Swap Token, this is the exact time in unix epoch timestamp in seconds of when the Swap Token should expires
-     * @param exchangeRateProvider address of IExchangeRateProvider contract
+     * @param rateOracle address of IRateOracle contract
      */
-    function createNewMarket(address referenceAsset, address collateralAsset, uint256 expiryTimestamp, address exchangeRateProvider) external;
+    function createNewMarket(address referenceAsset, address collateralAsset, uint256 expiryTimestamp, address rateOracle, uint256 rateMin, uint256 rateMax, uint256 rateChangePerDayMax, uint256 rateChangeCapacityMax) external;
 
     /**
      * @notice update Cork Pool unwindSwap fee rate for a pair
@@ -62,10 +61,10 @@ interface Initialize {
      * @param referenceAsset The address of the reference asset (e.g., ETH for depeg protection)
      * @param collateralAsset The address of the collateral asset (e.g., stETH)
      * @param expiry The expiry timestamp for the market
-     * @param exchangeRateProvider The address of the exchange rate provider
+     * @param rateOracle The address of the IRateOracle contract
      * @return marketId The unique market identifier
      */
-    function getId(address referenceAsset, address collateralAsset, uint256 expiry, address exchangeRateProvider) external pure returns (MarketId marketId);
+    function getId(address referenceAsset, address collateralAsset, uint256 expiry, address rateOracle, uint256 rateMin, uint256 rateMax, uint256 rateChangePerDayMax, uint256 rateChangeCapacityMax) external view returns (MarketId marketId);
 
     /**
      * @notice Gets the market information for a given market ID
@@ -80,14 +79,14 @@ interface Initialize {
      * @return referenceAsset The address of the reference asset
      * @return collateralAsset The address of the collateral asset
      * @return expiryTimestamp The timestamp when the market expires
-     * @return exchangeRateProvider The address of the exchange rate provider
+     * @return rateOracle The address of the IRateOracle contract
      */
-    function marketDetails(MarketId id) external view returns (address referenceAsset, address collateralAsset, uint256 expiryTimestamp, address exchangeRateProvider);
+    function marketDetails(MarketId id) external view returns (address referenceAsset, address collateralAsset, uint256 expiryTimestamp, address rateOracle, uint256 rateMin, uint256 rateMax, uint256 rateChangePerDayMax, uint256 rateChangeCapacityMax);
 
     /// @notice Emitted when a new LV and Cork Pool is initialized with a given pair
     /// @param id The Cork Pool id
     /// @param referenceAsset The address of the pegged asset
     /// @param collateralAsset The address of the redemption asset
     /// @param expiry The expiry interval of the Swap Token
-    event MarketCreated(MarketId indexed id, address indexed referenceAsset, address indexed collateralAsset, uint256 expiry, address exchangeRateProvider, address principalToken, address swapToken);
+    event MarketCreated(MarketId indexed id, address indexed referenceAsset, address indexed collateralAsset, uint256 expiry, address rateOracle, address principalToken, address swapToken);
 }

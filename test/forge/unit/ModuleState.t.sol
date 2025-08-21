@@ -9,20 +9,20 @@ import {MarketId} from "contracts/libraries/Market.sol";
 import {Balances, CorkPoolPoolArchive, PoolState, State} from "contracts/libraries/State.sol";
 import {SwapToken, SwapTokenLibrary} from "contracts/libraries/SwapToken.sol";
 import {Helper} from "test/forge/Helper.sol";
-import {DummyWETH} from "test/forge/utils/dummy/DummyWETH.sol";
+import {ERC20Mock} from "test/mocks/ERC20Mock.sol";
 
 contract ModuleStateHelper is ModuleState {
     // Expose internal variables for testing
     function getStates(MarketId id) external view returns (State memory) {
-        return states[id];
+        return data().states[id];
     }
 
     function getSwapSharesFactory() external view returns (address) {
-        return SHARES_FACTORY;
+        return data().SHARES_FACTORY;
     }
 
     function getConfig() external view returns (address) {
-        return CONFIG;
+        return data().CONFIG;
     }
 
     // Expose internal functions for testing
@@ -30,8 +30,8 @@ contract ModuleStateHelper is ModuleState {
         onlyConfig();
     }
 
-    function exposedInitializeModuleState(address _swapSharesFactory, address _config) external {
-        initializeModuleState(_swapSharesFactory, _config);
+    function exposedInitializeModuleState(address _swapSharesFactory, address _config, address _adapter) external {
+        initializeModuleState(_swapSharesFactory, _config, _adapter);
     }
 
     function exposedOnlyInitialized(MarketId id) external view {
@@ -55,33 +55,33 @@ contract ModuleStateHelper is ModuleState {
     }
 
     function exposedCorkPoolUnwindSwapNotPaused(MarketId id) external view {
-        corkPoolUnwindSwapNotPaused(id);
+        corkPoolUnwindSwapAndExerciseNotPaused(id);
     }
 
     // Helper function to set state for testing
     function setState(MarketId id, State memory state) external {
-        states[id] = state;
+        data().states[id] = state;
     }
 
     // Helper functions to set individual pause states for testing
     function setDepositPaused(MarketId id, bool paused) external {
-        states[id].pool.isDepositPaused = paused;
+        data().states[id].pool.isDepositPaused = paused;
     }
 
     function setSwapPaused(MarketId id, bool paused) external {
-        states[id].pool.isSwapPaused = paused;
+        data().states[id].pool.isSwapPaused = paused;
     }
 
     function setWithdrawalPaused(MarketId id, bool paused) external {
-        states[id].pool.isWithdrawalPaused = paused;
+        data().states[id].pool.isWithdrawalPaused = paused;
     }
 
     function setReturnPaused(MarketId id, bool paused) external {
-        states[id].pool.isReturnPaused = paused;
+        data().states[id].pool.isReturnPaused = paused;
     }
 
     function setUnwindSwapPaused(MarketId id, bool paused) external {
-        states[id].pool.isUnwindSwapPaused = paused;
+        data().states[id].pool.isUnwindSwapPaused = paused;
     }
 
     // Helper to create initialized state
@@ -90,7 +90,7 @@ contract ModuleStateHelper is ModuleState {
         state.info.collateralAsset = ca;
         state.info.referenceAsset = ra;
         state.info.expiryTimestamp = block.timestamp + 1 days;
-        states[id] = state;
+        data().states[id] = state;
     }
 }
 
@@ -103,8 +103,8 @@ contract ModuleStateTest is Helper {
     address private swapSharesFactory;
     address private configContract;
 
-    DummyWETH collateralAsset;
-    DummyWETH referenceAsset;
+    ERC20Mock collateralAsset;
+    ERC20Mock referenceAsset;
     MarketId id;
 
     function setUp() public {
@@ -154,7 +154,7 @@ contract ModuleStateTest is Helper {
     }
 
     function test_getSwapSharesFactory_ShouldReturnCorrectAddress_WhenInitialized() external {
-        moduleState.exposedInitializeModuleState(swapSharesFactory, configContract);
+        moduleState.exposedInitializeModuleState(swapSharesFactory, configContract, address(testOracle));
         assertEq(moduleState.getSwapSharesFactory(), swapSharesFactory, "Factory should match");
     }
 
@@ -163,7 +163,7 @@ contract ModuleStateTest is Helper {
     }
 
     function test_getConfig_ShouldReturnCorrectAddress_WhenInitialized() external {
-        moduleState.exposedInitializeModuleState(swapSharesFactory, configContract);
+        moduleState.exposedInitializeModuleState(swapSharesFactory, configContract, address(testOracle));
         assertEq(moduleState.getConfig(), configContract, "Config should match");
     }
 
@@ -173,28 +173,28 @@ contract ModuleStateTest is Helper {
     }
 
     function test_factory_ShouldReturnCorrectAddress_WhenInitialized() external {
-        moduleState.exposedInitializeModuleState(swapSharesFactory, configContract);
+        moduleState.exposedInitializeModuleState(swapSharesFactory, configContract, address(testOracle));
         assertEq(moduleState.factory(), swapSharesFactory, "Factory should match");
     }
 
     // ================================ InitializeModuleState Tests ================================ //
     function test_exposedInitializeModuleState_ShouldRevert_WhenFactoryIsZero() external {
         vm.expectRevert(abi.encodeWithSignature("ZeroAddress()"));
-        moduleState.exposedInitializeModuleState(address(0), configContract);
+        moduleState.exposedInitializeModuleState(address(0), configContract, address(testOracle));
     }
 
     function test_exposedInitializeModuleState_ShouldRevert_WhenConfigIsZero() external {
         vm.expectRevert(abi.encodeWithSignature("ZeroAddress()"));
-        moduleState.exposedInitializeModuleState(swapSharesFactory, address(0));
+        moduleState.exposedInitializeModuleState(swapSharesFactory, address(0), address(testOracle));
     }
 
     function test_exposedInitializeModuleState_ShouldRevert_WhenBothAreZero() external {
         vm.expectRevert(abi.encodeWithSignature("ZeroAddress()"));
-        moduleState.exposedInitializeModuleState(address(0), address(0));
+        moduleState.exposedInitializeModuleState(address(0), address(0), address(testOracle));
     }
 
     function test_exposedInitializeModuleState_ShouldSetVariables_WhenValidAddresses() external {
-        moduleState.exposedInitializeModuleState(swapSharesFactory, configContract);
+        moduleState.exposedInitializeModuleState(swapSharesFactory, configContract, address(testOracle));
 
         assertEq(moduleState.getSwapSharesFactory(), swapSharesFactory, "Factory should be set");
         assertEq(moduleState.getConfig(), configContract, "Config should be set");
@@ -202,14 +202,14 @@ contract ModuleStateTest is Helper {
 
     // ================================ OnlyConfig Tests ================================ //
     function test_exposedOnlyConfig_ShouldRevert_WhenCallerIsNotConfig() external {
-        moduleState.exposedInitializeModuleState(swapSharesFactory, configContract);
+        moduleState.exposedInitializeModuleState(swapSharesFactory, configContract, address(testOracle));
 
         vm.expectRevert(abi.encodeWithSignature("OnlyConfigAllowed()"));
         moduleState.exposedOnlyConfig();
     }
 
     function test_exposedOnlyConfig_ShouldPass_WhenCallerIsConfig() external {
-        moduleState.exposedInitializeModuleState(swapSharesFactory, configContract);
+        moduleState.exposedInitializeModuleState(swapSharesFactory, configContract, address(testOracle));
 
         vm.prank(configContract);
         moduleState.exposedOnlyConfig(); // Should not revert
@@ -222,7 +222,7 @@ contract ModuleStateTest is Helper {
 
     // ================================ GetTreasuryAddress Tests ================================ //
     function test_getTreasuryAddress_ShouldReturnCorrectAddress_WhenConfigIsSet() external {
-        moduleState.exposedInitializeModuleState(address(sharesFactory), address(corkConfig));
+        moduleState.exposedInitializeModuleState(address(sharesFactory), address(corkConfig), address(testOracle));
         assertEq(moduleState.getTreasuryAddress(), CORK_PROTOCOL_TREASURY, "Treasury should match");
     }
 
@@ -364,7 +364,7 @@ contract ModuleStateTest is Helper {
     function testFuzz_initializeModuleState_ShouldHandleValidAddresses(address factory, address config) external {
         vm.assume(factory != address(0) && config != address(0));
 
-        moduleState.exposedInitializeModuleState(factory, config);
+        moduleState.exposedInitializeModuleState(factory, config, address(testOracle));
 
         assertEq(moduleState.getSwapSharesFactory(), factory, "Factory should match");
         assertEq(moduleState.getConfig(), config, "Config should match");
@@ -372,7 +372,7 @@ contract ModuleStateTest is Helper {
 
     function testFuzz_onlyConfig_ShouldOnlyAllowConfigCaller(address caller, address factory, address config) external {
         vm.assume(factory != address(0) && config != address(0));
-        moduleState.exposedInitializeModuleState(factory, config);
+        moduleState.exposedInitializeModuleState(factory, config, address(testOracle));
 
         if (caller == config) {
             vm.prank(caller);

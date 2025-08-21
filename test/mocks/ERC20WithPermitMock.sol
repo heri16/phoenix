@@ -2,24 +2,25 @@
 pragma solidity ^0.8.30;
 
 import {ERC20, ERC20Burnable} from "@openzeppelin/contracts/token/ERC20/extensions/ERC20Burnable.sol";
+import {ERC20Permit} from "@openzeppelin/contracts/token/ERC20/extensions/ERC20Permit.sol";
 
 /**
- * @title DummyWETH Contract
+ * @title ERC20WithPermitMock Contract
  * @author Cork Team
- * @notice Dummy contract which provides WETH with ERC20
+ * @notice Dummy contract which provides ERC20 with Metadata for Collateral Asset & Reference Asset
  */
-contract DummyWETH is ERC20Burnable {
+contract ERC20WithPermitMock is ERC20Burnable, ERC20Permit {
     event Deposit(address indexed dst, uint256 wad);
     event Withdrawal(address indexed src, uint256 wad);
 
-    constructor() ERC20("Dummy Wrapped ETH", "DWETH") {}
+    constructor(string memory name, string memory symbol) ERC20(name, symbol) ERC20Permit(name) {}
 
-    fallback() external payable {
-        deposit();
+    function mint(address to, uint256 amount) external {
+        _mint(to, amount);
     }
 
-    receive() external payable {
-        deposit();
+    function burnSelf(uint256 amount) external {
+        _burn(msg.sender, amount);
     }
 
     function deposit() public payable {

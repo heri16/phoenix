@@ -1,14 +1,14 @@
 pragma solidity ^0.8.30;
 
-import {Shares} from "contracts/core/assets/Shares.sol";
+import {PoolShare} from "contracts/core/assets/PoolShare.sol";
 
 import {Market, MarketId} from "contracts/libraries/Market.sol";
 import {Helper} from "test/forge/Helper.sol";
-import {DummyWETH} from "test/forge/utils/dummy/DummyWETH.sol";
+import {ERC20Mock} from "test/mocks/ERC20Mock.sol";
 
 contract POCTest is Helper {
-    DummyWETH internal collateralAsset;
-    DummyWETH internal referenceAsset;
+    ERC20Mock internal collateralAsset;
+    ERC20Mock internal referenceAsset;
     MarketId public currencyId;
 
     uint256 public DEFAULT_DEPOSIT_AMOUNT = 10_000 ether;
@@ -36,9 +36,8 @@ contract POCTest is Helper {
         corkPool.deposit(currencyId, DEFAULT_DEPOSIT_AMOUNT, DEFAULT_ADDRESS);
 
         // save initial data
-        address exchangeRateProvider = address(corkConfig.defaultExchangeRateProvider());
         (, swapToken) = corkPool.shares(currencyId);
-        Shares(swapToken).approve(address(corkPool), type(uint256).max);
+        PoolShare(swapToken).approve(address(corkPool), type(uint256).max);
         referenceAsset.approve(address(corkPool), type(uint256).max);
     }
 

@@ -14,6 +14,10 @@ struct State {
     /// @dev epoch => SwapToken(Principal Token + Swap Token)
     SwapToken swapToken;
     PoolState pool;
+    // @dev decimals of the reference asset token
+    uint8 referenceDecimals;
+    // @dev decimals of the collateral asset token
+    uint8 collateralDecimals;
 }
 
 /**
@@ -38,7 +42,6 @@ struct PoolState {
 struct CorkPoolPoolArchive {
     uint256 collateralAssetAccrued;
     uint256 referenceAssetAccrued;
-    uint256 principalTokenAttributed;
 }
 
 /**

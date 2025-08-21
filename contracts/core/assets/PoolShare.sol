@@ -5,19 +5,19 @@ import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {ERC20Burnable} from "@openzeppelin/contracts/token/ERC20/extensions/ERC20Burnable.sol";
 import {IExpiry} from "contracts/interfaces/IExpiry.sol";
-import {IPool} from "contracts/interfaces/IPool.sol";
-import {IRates} from "contracts/interfaces/IRates.sol";
+import {IPoolManager} from "contracts/interfaces/IPoolManager.sol";
+import {IPoolShare} from "contracts/interfaces/IPoolShare.sol";
 import {IReserve} from "contracts/interfaces/IReserve.sol";
-import {IShares} from "contracts/interfaces/IShares.sol";
+import {ISwapRate} from "contracts/interfaces/ISwapRate.sol";
 import {MarketId} from "contracts/libraries/Market.sol";
 import {ERC20Permit} from "openzeppelin-contracts/contracts/token/ERC20/extensions/ERC20Permit.sol";
 
 /**
- * @title Contract for Adding Exchange Rate functionality
+ * @title Contract for Adding Swap Rate functionality
  * @author Cork Team
- * @notice Adds Exchange Rate functionality to Shares contracts
+ * @notice Adds Swap Rate functionality to PoolShare contracts
  */
-abstract contract ExchangeRate is IRates {
+abstract contract SwapRate is ISwapRate {
     uint256 internal rate;
 
     constructor(uint256 _rate) {
@@ -25,9 +25,9 @@ abstract contract ExchangeRate is IRates {
     }
 
     /**
-     * @notice returns the current exchange rate
+     * @notice returns the current swap rate
      */
-    function exchangeRate() external view override returns (uint256) {
+    function swapRate() external view override returns (uint256) {
         return rate;
     }
 }
@@ -35,7 +35,7 @@ abstract contract ExchangeRate is IRates {
 /**
  * @title Contract for Adding Expiry functionality to Swap Token
  * @author Cork Team
- * @notice Adds Expiry functionality to Shares contracts
+ * @notice Adds Expiry functionality to PoolShare contracts
  * @dev Used for adding Expiry functionality to contracts like Swap Token
  */
 abstract contract Expiry is IExpiry {
@@ -49,9 +49,7 @@ abstract contract Expiry is IExpiry {
      * @param _expiry The expiry timestamp for the shares contract.
      */
     constructor(uint256 _expiry) {
-        if (_expiry == 0) revert InvalidExpiry();
-
-        if (_expiry < block.timestamp) revert Expired();
+        require(_expiry > block.timestamp, InvalidExpiry());
 
         EXPIRY = _expiry;
         ISSUED_AT = block.timestamp;
@@ -80,33 +78,33 @@ abstract contract Expiry is IExpiry {
 }
 
 /**
- * @title Shares Contract
+ * @title PoolShare Contract
  * @author Cork Team
  * @notice Contract for implementing assets like Swap Token/Principal Token etc
  */
-contract Shares is ERC20Burnable, ERC20Permit, Ownable, Expiry, ExchangeRate, IShares {
+contract PoolShare is ERC20Burnable, ERC20Permit, Ownable, Expiry, SwapRate, IPoolShare {
     string public pairName;
 
-    MarketId public marketId;
+    MarketId public poolId;
 
-    IPool public corkPool;
+    IPoolManager public poolManager;
 
     address public factory;
 
     modifier onlyFactory() {
-        if (_msgSender() != factory) revert OwnableUnauthorizedAccount(_msgSender());
+        require(_msgSender() == factory, OwnableUnauthorizedAccount(_msgSender()));
 
         _;
     }
 
     /**
-     * @notice Constructor for the Shares contract
+     * @notice Constructor for the PoolShare contract
      * @param _pairName The name of the asset pair
      * @param _owner The address of the owner of the contract
      * @param _expiry The expiry time of the shares contract
-     * @param _rate The exchange rate of the shares contract
+     * @param _rate The swap rate of the shares contract
      */
-    constructor(string memory _pairName, address _owner, uint256 _expiry, uint256 _rate) ExchangeRate(_rate) ERC20(_pairName, _pairName) ERC20Permit(_pairName) Ownable(_owner) Expiry(_expiry) {
+    constructor(string memory _pairName, string memory _symbol, address _owner, uint256 _expiry, uint256 _rate) SwapRate(_rate) ERC20(_pairName, _symbol) ERC20Permit(_pairName) Ownable(_owner) Expiry(_expiry) {
         pairName = _pairName;
 
         factory = _msgSender();
@@ -118,26 +116,26 @@ contract Shares is ERC20Burnable, ERC20Permit, Ownable, Expiry, ExchangeRate, IS
      * @param referenceAsset The Reference Assets reserve amount for shares contract.
      */
     function getReserves() external view returns (uint256 collateralAsset, uint256 referenceAsset) {
-        collateralAsset = corkPool.valueLocked(marketId, true);
-        referenceAsset = corkPool.valueLocked(marketId, false);
+        collateralAsset = poolManager.valueLocked(poolId, true);
+        referenceAsset = poolManager.valueLocked(poolId, false);
     }
 
     /**
-     * @notice Sets the market ID for the shares contract
+     * @notice Sets the pool ID for the shares contract
      * @dev This function can only be called by the factory contract
-     * @param _marketId The market ID for the shares contract
+     * @param _poolId The pool ID for the shares contract
      */
-    function setMarketId(MarketId _marketId) external onlyFactory {
-        marketId = _marketId;
+    function setPoolId(MarketId _poolId) external onlyFactory {
+        poolId = _poolId;
     }
 
     /**
      * @notice Sets the cork pool address for the shares contract
      * @dev This function can only be called by the factory contract
-     * @param _corkPool The address of the cork pool contract
+     * @param _poolManager The address of the cork pool manager contract
      */
-    function setCorkPool(address _corkPool) external onlyFactory {
-        corkPool = IPool(_corkPool);
+    function setPoolManager(address _poolManager) external onlyFactory {
+        poolManager = IPoolManager(_poolManager);
     }
 
     /**
@@ -146,8 +144,15 @@ contract Shares is ERC20Burnable, ERC20Permit, Ownable, Expiry, ExchangeRate, IS
      * @param amount number of tokens to be minted
      */
     function mint(address to, uint256 amount) public onlyOwner {
-        if (isExpired()) revert Expired();
         _mint(to, amount);
+    }
+
+    /**
+     * @notice burns `amount` number of tokens from the caller
+     * @param amount number of tokens to be burned
+     */
+    function burn(uint256 amount) public override onlyOwner {
+        _burn(_msgSender(), amount);
     }
 
     /**
@@ -155,7 +160,7 @@ contract Shares is ERC20Burnable, ERC20Permit, Ownable, Expiry, ExchangeRate, IS
      * @dev This function can only be called by the owner of the contract.
      * @param newRate The new rate to be set for the shares contract.
      */
-    function updateRate(uint256 newRate) external override onlyOwner {
+    function updateSwapRate(uint256 newRate) external override onlyOwner {
         rate = newRate;
     }
 
@@ -196,5 +201,30 @@ contract Shares is ERC20Burnable, ERC20Permit, Ownable, Expiry, ExchangeRate, IS
      */
     function emitWithdraw(address sender, address receiver, address owner, uint256 assets, uint256 shares) external onlyOwner {
         emit Withdraw(sender, receiver, owner, assets, shares);
+    }
+
+    /**
+     * @dev This function can only be called by the cork pool contract (owner)
+     * @param sender The address initiating the withdrawal
+     * @param receiver The address receiving the reference assets
+     * @param owner The address owning the shares
+     * @param asset The address of the reference asset
+     * @param assets The amount of reference assets withdrawn
+     * @param shares The amount of shares burned
+     */
+    function emitWithdrawOther(address sender, address receiver, address owner, address asset, uint256 assets, uint256 shares) external onlyOwner {
+        emit WithdrawOther(sender, receiver, owner, asset, assets, shares);
+    }
+
+    /**
+     * @dev This function can only be called by the cork pool contract (owner)
+     * @param sender The address initiating the deposit
+     * @param owner The address receiving the shares
+     * @param asset The address of the reference asset
+     * @param assets The amount of reference assets deposited
+     * @param shares The amount of shares minted
+     */
+    function emitDepositOther(address sender, address owner, address asset, uint256 assets, uint256 shares) external onlyOwner {
+        emit DepositOther(sender, owner, asset, assets, shares);
     }
 }

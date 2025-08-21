@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 pragma solidity ^0.8.30;
 
-import {Shares} from "contracts/core/assets/Shares.sol";
+import {PoolShare} from "contracts/core/assets/PoolShare.sol";
 
 import {IErrors} from "contracts/interfaces/IErrors.sol";
 
@@ -46,8 +46,8 @@ contract GuardHelper {
 
 contract GuardTest is Helper {
     GuardHelper internal guardHelper;
-    Shares internal mockAsset;
-    Shares internal mockPrincipalToken;
+    PoolShare internal mockAsset;
+    PoolShare internal mockPrincipalToken;
 
     address internal user1;
     address internal user2;
@@ -59,8 +59,8 @@ contract GuardTest is Helper {
         vm.startPrank(DEFAULT_ADDRESS);
 
         // Create mock assets for testing
-        mockAsset = new Shares("Swap Token", user1, block.timestamp + 1 days, 1 ether);
-        mockPrincipalToken = new Shares("Principal Token", user1, block.timestamp + 1 days, 1 ether);
+        mockAsset = new PoolShare("Swap Token", "SWT", user1, block.timestamp + 1 days, 1 ether);
+        mockPrincipalToken = new PoolShare("Principal Token", "PT", user1, block.timestamp + 1 days, 1 ether);
 
         // Deploy guard helper
         guardHelper = new GuardHelper();
@@ -74,8 +74,8 @@ contract GuardTest is Helper {
     // ------------------------------- _onlyNotExpired Tests ----------------------------------- //
 
     function test_onlyNotExpired_ShouldPass_WhenNotExpired() external {
-        // Shares should not be expired at setup
-        assertFalse(mockAsset.isExpired(), "Shares should not be expired");
+        // PoolShare should not be expired at setup
+        assertFalse(mockAsset.isExpired(), "PoolShare should not be expired");
 
         // Should not revert
         guardHelper.onlyNotExpired();
@@ -85,7 +85,7 @@ contract GuardTest is Helper {
         // Warp time to make asset expired
         vm.warp(block.timestamp + 2 days);
 
-        assertTrue(mockAsset.isExpired(), "Shares should be expired");
+        assertTrue(mockAsset.isExpired(), "PoolShare should be expired");
 
         // Should revert with Expired error
         vm.expectRevert(IErrors.Expired.selector);
@@ -96,7 +96,7 @@ contract GuardTest is Helper {
         // Warp to exact expiry time
         vm.warp(mockAsset.expiry());
 
-        assertTrue(mockAsset.isExpired(), "Shares should be expired at expiry time");
+        assertTrue(mockAsset.isExpired(), "PoolShare should be expired at expiry time");
 
         // Should revert with Expired error
         vm.expectRevert(IErrors.Expired.selector);
@@ -106,8 +106,8 @@ contract GuardTest is Helper {
     // ------------------------------- _onlyExpired Tests ----------------------------------- //
 
     function test_onlyExpired_ShouldRevert_WhenNotExpired() external {
-        // Shares should not be expired at setup
-        assertFalse(mockAsset.isExpired(), "Shares should not be expired");
+        // PoolShare should not be expired at setup
+        assertFalse(mockAsset.isExpired(), "PoolShare should not be expired");
 
         // Should revert with NotExpired error
         vm.expectRevert(IErrors.NotExpired.selector);
@@ -118,7 +118,7 @@ contract GuardTest is Helper {
         // Warp time to make asset expired
         vm.warp(block.timestamp + 2 days);
 
-        assertTrue(mockAsset.isExpired(), "Shares should be expired");
+        assertTrue(mockAsset.isExpired(), "PoolShare should be expired");
 
         // Should not revert
         guardHelper.onlyExpired();
@@ -128,7 +128,7 @@ contract GuardTest is Helper {
         // Warp to exact expiry time
         vm.warp(mockAsset.expiry());
 
-        assertTrue(mockAsset.isExpired(), "Shares should be expired at expiry time");
+        assertTrue(mockAsset.isExpired(), "PoolShare should be expired at expiry time");
 
         // Should not revert
         guardHelper.onlyExpired();
@@ -173,7 +173,7 @@ contract GuardTest is Helper {
 
     function test_safeBeforeExpired_ShouldPass_WhenInitializedAndNotExpired() external {
         // SwapToken should be initialized and not expired
-        assertFalse(mockAsset.isExpired(), "Shares should not be expired");
+        assertFalse(mockAsset.isExpired(), "PoolShare should not be expired");
 
         // Should not revert
         guardHelper.safeBeforeExpired();
@@ -192,7 +192,7 @@ contract GuardTest is Helper {
         // Make asset expired
         vm.warp(block.timestamp + 2 days);
 
-        assertTrue(mockAsset.isExpired(), "Shares should be expired");
+        assertTrue(mockAsset.isExpired(), "PoolShare should be expired");
 
         // Should revert with Expired error (checked after initialization)
         vm.expectRevert(IErrors.Expired.selector);
@@ -215,7 +215,7 @@ contract GuardTest is Helper {
         // Make asset expired
         vm.warp(block.timestamp + 2 days);
 
-        assertTrue(mockAsset.isExpired(), "Shares should be expired");
+        assertTrue(mockAsset.isExpired(), "PoolShare should be expired");
 
         // Should not revert
         guardHelper.safeAfterExpired();
@@ -232,7 +232,7 @@ contract GuardTest is Helper {
     }
 
     function test_safeAfterExpired_ShouldRevert_WhenInitializedButNotExpired() external {
-        assertFalse(mockAsset.isExpired(), "Shares should not be expired");
+        assertFalse(mockAsset.isExpired(), "PoolShare should not be expired");
 
         // Should revert with NotExpired error (checked after initialization)
         vm.expectRevert(IErrors.NotExpired.selector);
@@ -243,7 +243,7 @@ contract GuardTest is Helper {
         // Set to uninitialized state
         guardHelper.setSwapToken(address(0), address(0));
 
-        assertFalse(mockAsset.isExpired(), "Shares should not be expired");
+        assertFalse(mockAsset.isExpired(), "PoolShare should not be expired");
 
         // Should revert with Uninitialized error (checked first)
         vm.expectRevert(IErrors.Uninitialized.selector);
@@ -253,10 +253,10 @@ contract GuardTest is Helper {
     // ------------------------------- Edge Cases and Integration Tests ----------------------------------- //
 
     function test_isExpired_Integration_WithRealAsset() external {
-        // Test with real Shares contract behavior
+        // Test with real PoolShare contract behavior
         uint256 futureExpiry = block.timestamp + 1 hours;
-        Shares testAsset = new Shares("TEST", user1, futureExpiry, 1 ether);
-        Shares testPrincipalToken = new Shares("TEST_CT", user1, futureExpiry, 1 ether);
+        PoolShare testAsset = new PoolShare("TEST", "TEST", user1, futureExpiry, 1 ether);
+        PoolShare testPrincipalToken = new PoolShare("TEST_CT", "TEST_CT", user1, futureExpiry, 1 ether);
 
         // Set up with test assets
         guardHelper.setSwapToken(address(testAsset), address(testPrincipalToken));
@@ -284,8 +284,8 @@ contract GuardTest is Helper {
         expiryTimes[2] = block.timestamp + 1 days;
 
         for (uint256 i = 0; i < expiryTimes.length; i++) {
-            Shares testAsset = new Shares("TEST", user1, expiryTimes[i], 1 ether);
-            Shares testPrincipalToken = new Shares("TEST_CT", user1, expiryTimes[i], 1 ether);
+            PoolShare testAsset = new PoolShare("TEST", "TEST", user1, expiryTimes[i], 1 ether);
+            PoolShare testPrincipalToken = new PoolShare("TEST_CT", "TEST_CT", user1, expiryTimes[i], 1 ether);
 
             // Set up with test assets
             guardHelper.setSwapToken(address(testAsset), address(testPrincipalToken));
@@ -302,8 +302,8 @@ contract GuardTest is Helper {
     // ------------------------------- Test Helper Functions ----------------------------------- //
 
     function test_AssetExpiryBehavior() external view {
-        // Verify our understanding of Shares.isExpired() behavior
-        assertFalse(mockAsset.isExpired(), "Shares should not be expired initially");
+        // Verify our understanding of PoolShare.isExpired() behavior
+        assertFalse(mockAsset.isExpired(), "PoolShare should not be expired initially");
         assertEq(mockAsset.expiry(), block.timestamp + 1 days, "Expiry should be set correctly");
     }
 

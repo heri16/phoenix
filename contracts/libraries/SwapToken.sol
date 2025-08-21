@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 pragma solidity ^0.8.30;
 
-import {Shares} from "contracts/core/assets/Shares.sol";
+import {PoolShare} from "contracts/core/assets/PoolShare.sol";
 
 /**
  * @dev SwapToken structure for Swap Token(SwapToken)
@@ -19,7 +19,7 @@ struct SwapToken {
  */
 library SwapTokenLibrary {
     function isExpired(SwapToken storage self) internal view returns (bool) {
-        return Shares(self._address).isExpired();
+        return PoolShare(self._address).isExpired();
     }
 
     function isInitialized(SwapToken storage self) internal view returns (bool) {
@@ -27,12 +27,12 @@ library SwapTokenLibrary {
     }
 
     function issue(SwapToken memory self, address to, uint256 amount) internal {
-        Shares(self._address).mint(to, amount);
-        Shares(self.principalToken).mint(to, amount);
+        PoolShare(self._address).mint(to, amount);
+        PoolShare(self.principalToken).mint(to, amount);
     }
 
-    function updateExchangeRate(SwapToken storage self, uint256 rate) internal {
-        Shares(self._address).updateRate(rate);
-        Shares(self.principalToken).updateRate(rate);
+    function updateSwapRate(SwapToken storage self, uint256 rate) internal {
+        PoolShare(self._address).updateSwapRate(rate);
+        PoolShare(self.principalToken).updateSwapRate(rate);
     }
 }

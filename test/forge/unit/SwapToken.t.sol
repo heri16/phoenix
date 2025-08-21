@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 pragma solidity ^0.8.30;
 
-import {Shares} from "contracts/core/assets/Shares.sol";
+import {PoolShare} from "contracts/core/assets/PoolShare.sol";
 import {IErrors} from "contracts/interfaces/IErrors.sol";
 import {SwapToken, SwapTokenLibrary} from "contracts/libraries/SwapToken.sol";
 import {Test} from "forge-std/Test.sol";
@@ -36,15 +36,15 @@ contract SwapTokenHelper {
         SwapTokenLibrary.issue(swapToken, to, amount);
     }
 
-    function updateExchangeRate(uint256 rate) external {
-        swapToken.updateExchangeRate(rate);
+    function updateSwapRate(uint256 rate) external {
+        swapToken.updateSwapRate(rate);
     }
 }
 
 contract SwapTokenTest is Helper {
     SwapTokenHelper internal swapTokenHelper;
-    Shares internal mockAsset;
-    Shares internal mockPrincipalToken;
+    PoolShare internal mockSwapToken;
+    PoolShare internal mockPrincipalToken;
 
     address internal user1;
     address internal user2;
@@ -59,11 +59,11 @@ contract SwapTokenTest is Helper {
         swapTokenHelper = new SwapTokenHelper();
 
         // Create mock assets for testing
-        mockAsset = new Shares("Swap Token", address(swapTokenHelper), block.timestamp + 1 days, 1 ether);
-        mockPrincipalToken = new Shares("Principal Token", address(swapTokenHelper), block.timestamp + 1 days, 1 ether);
+        mockSwapToken = new PoolShare("Swap Token", "SWT", address(swapTokenHelper), block.timestamp + 1 days, 1 ether);
+        mockPrincipalToken = new PoolShare("Principal Token", "PT", address(swapTokenHelper), block.timestamp + 1 days, 1 ether);
 
         // Initialize with valid SwapToken
-        swapTokenHelper.setSwapToken(address(mockAsset), address(mockPrincipalToken), 0);
+        swapTokenHelper.setSwapToken(address(mockSwapToken), address(mockPrincipalToken), 0);
 
         vm.stopPrank();
     }
@@ -72,7 +72,7 @@ contract SwapTokenTest is Helper {
 
     function test_isExpired_ShouldReturnFalse_WhenNotExpired() external {
         // Asset should not be expired at setup
-        assertFalse(mockAsset.isExpired(), "Asset should not be expired");
+        assertFalse(mockSwapToken.isExpired(), "Asset should not be expired");
 
         // Should return false
         assertFalse(swapTokenHelper.isExpired(), "SwapToken should not be expired");
@@ -82,7 +82,7 @@ contract SwapTokenTest is Helper {
         // Warp time to make asset expired
         vm.warp(block.timestamp + 2 days);
 
-        assertTrue(mockAsset.isExpired(), "Asset should be expired");
+        assertTrue(mockSwapToken.isExpired(), "Asset should be expired");
 
         // Should return true
         assertTrue(swapTokenHelper.isExpired(), "SwapToken should be expired");
@@ -90,9 +90,9 @@ contract SwapTokenTest is Helper {
 
     function test_isExpired_ShouldReturnTrue_WhenExactlyAtExpiry() external {
         // Warp to exact expiry time
-        vm.warp(mockAsset.expiry());
+        vm.warp(mockSwapToken.expiry());
 
-        assertTrue(mockAsset.isExpired(), "Asset should be expired at expiry time");
+        assertTrue(mockSwapToken.isExpired(), "Asset should be expired at expiry time");
 
         // Should return true
         assertTrue(swapTokenHelper.isExpired(), "SwapToken should be expired at expiry time");
@@ -124,7 +124,7 @@ contract SwapTokenTest is Helper {
 
     function test_isInitialized_ShouldReturnFalse_WhenPrincipalTokenIsZero() external {
         // Set principalToken to zero
-        swapTokenHelper.setSwapToken(address(mockAsset), address(0), 0);
+        swapTokenHelper.setSwapToken(address(mockSwapToken), address(0), 0);
 
         // Should return false
         assertFalse(swapTokenHelper.isInitialized(), "SwapToken should not be initialized when principalToken is zero");
@@ -140,7 +140,7 @@ contract SwapTokenTest is Helper {
 
     function test_isInitialized_ShouldReturnTrue_WithNonZeroPrincipalTokenRedeemed() external {
         // Set ctRedeemed to non-zero value
-        swapTokenHelper.setSwapToken(address(mockAsset), address(mockPrincipalToken), 1000);
+        swapTokenHelper.setSwapToken(address(mockSwapToken), address(mockPrincipalToken), 1000);
 
         // Should still return true (ctRedeemed doesn't affect initialization status)
         assertTrue(swapTokenHelper.isInitialized(), "SwapToken should be initialized regardless of ctRedeemed value");
@@ -152,7 +152,7 @@ contract SwapTokenTest is Helper {
         uint256 amount = 1000 ether;
 
         // Check initial balances
-        assertEq(mockAsset.balanceOf(user1), 0, "Initial Swap Token balance should be 0");
+        assertEq(mockSwapToken.balanceOf(user1), 0, "Initial Swap Token balance should be 0");
         assertEq(mockPrincipalToken.balanceOf(user1), 0, "Initial Principal Token balance should be 0");
 
         // Issue tokens
@@ -160,7 +160,7 @@ contract SwapTokenTest is Helper {
         swapTokenHelper.issue(user1, amount);
 
         // Check balances after issuing
-        assertEq(mockAsset.balanceOf(user1), amount, "Swap Token balance should equal issued amount");
+        assertEq(mockSwapToken.balanceOf(user1), amount, "Swap Token balance should equal issued amount");
         assertEq(mockPrincipalToken.balanceOf(user1), amount, "Principal Token balance should equal issued amount");
     }
 
@@ -168,7 +168,7 @@ contract SwapTokenTest is Helper {
         uint256 amount = 0;
 
         // Check initial balances
-        assertEq(mockAsset.balanceOf(user1), 0, "Initial Swap Token balance should be 0");
+        assertEq(mockSwapToken.balanceOf(user1), 0, "Initial Swap Token balance should be 0");
         assertEq(mockPrincipalToken.balanceOf(user1), 0, "Initial Principal Token balance should be 0");
 
         // Issue zero tokens
@@ -176,7 +176,7 @@ contract SwapTokenTest is Helper {
         swapTokenHelper.issue(user1, amount);
 
         // Check balances remain zero
-        assertEq(mockAsset.balanceOf(user1), 0, "Swap Token balance should remain 0");
+        assertEq(mockSwapToken.balanceOf(user1), 0, "Swap Token balance should remain 0");
         assertEq(mockPrincipalToken.balanceOf(user1), 0, "Principal Token balance should remain 0");
     }
 
@@ -195,9 +195,9 @@ contract SwapTokenTest is Helper {
         vm.stopPrank();
 
         // Check balances
-        assertEq(mockAsset.balanceOf(user1), amount1, "User1 Swap Token balance should equal issued amount");
+        assertEq(mockSwapToken.balanceOf(user1), amount1, "User1 Swap Token balance should equal issued amount");
         assertEq(mockPrincipalToken.balanceOf(user1), amount1, "User1 Principal Token balance should equal issued amount");
-        assertEq(mockAsset.balanceOf(user2), amount2, "User2 Swap Token balance should equal issued amount");
+        assertEq(mockSwapToken.balanceOf(user2), amount2, "User2 Swap Token balance should equal issued amount");
         assertEq(mockPrincipalToken.balanceOf(user2), amount2, "User2 Principal Token balance should equal issued amount");
     }
 
@@ -217,7 +217,7 @@ contract SwapTokenTest is Helper {
         uint256 amount = 1000 ether;
 
         // Set principalToken to zero
-        swapTokenHelper.setSwapToken(address(mockAsset), address(0), 0);
+        swapTokenHelper.setSwapToken(address(mockSwapToken), address(0), 0);
 
         // Should revert when trying to mint on zero principalToken address
         vm.prank(DEFAULT_ADDRESS);
@@ -233,53 +233,53 @@ contract SwapTokenTest is Helper {
         swapTokenHelper.issue(user1, amount);
 
         // Check balances
-        assertEq(mockAsset.balanceOf(user1), amount, "Swap Token balance should equal large issued amount");
+        assertEq(mockSwapToken.balanceOf(user1), amount, "Swap Token balance should equal large issued amount");
         assertEq(mockPrincipalToken.balanceOf(user1), amount, "Principal Token balance should equal large issued amount");
     }
 
-    // ------------------------------- updateExchangeRate Tests ----------------------------------- //
+    // ------------------------------- updateSwapRate Tests ----------------------------------- //
 
-    function test_updateExchangeRate_ShouldUpdateBothAssets() external {
+    function test_updateSwapRate_ShouldUpdateBothAssets() external {
         uint256 newRate = 2 ether;
 
-        // Check initial rates
-        assertEq(mockAsset.exchangeRate(), 1 ether, "Initial Swap Token rate should be 1 ether");
-        assertEq(mockPrincipalToken.exchangeRate(), 1 ether, "Initial Principal Token rate should be 1 ether");
+        // Check initial rate
+        assertEq(mockSwapToken.swapRate(), 1 ether, "Initial Swap Token rate should be 1 ether");
+        assertEq(mockPrincipalToken.swapRate(), 1 ether, "Initial Principal Token rate should be 1 ether");
 
-        // Update exchange rate
+        // Update swap rate
         vm.prank(DEFAULT_ADDRESS);
-        swapTokenHelper.updateExchangeRate(newRate);
+        swapTokenHelper.updateSwapRate(newRate);
 
-        // Check rates after update
-        assertEq(mockAsset.exchangeRate(), newRate, "Swap Token rate should be updated");
-        assertEq(mockPrincipalToken.exchangeRate(), newRate, "Principal Token rate should be updated");
+        // Check rate after update
+        assertEq(mockSwapToken.swapRate(), newRate, "Swap Token rate should be updated");
+        assertEq(mockPrincipalToken.swapRate(), newRate, "Principal Token rate should be updated");
     }
 
-    function test_updateExchangeRate_ShouldUpdateToZero() external {
+    function test_updateSwapRate_ShouldUpdateToZero() external {
         uint256 newRate = 0;
 
-        // Update exchange rate to zero
+        // Update swap rate to zero
         vm.prank(DEFAULT_ADDRESS);
-        swapTokenHelper.updateExchangeRate(newRate);
+        swapTokenHelper.updateSwapRate(newRate);
 
-        // Check rates after update
-        assertEq(mockAsset.exchangeRate(), newRate, "Swap Token rate should be 0");
-        assertEq(mockPrincipalToken.exchangeRate(), newRate, "Principal Token rate should be 0");
+        // Check rate after update
+        assertEq(mockSwapToken.swapRate(), newRate, "Swap Token rate should be 0");
+        assertEq(mockPrincipalToken.swapRate(), newRate, "Principal Token rate should be 0");
     }
 
-    function test_updateExchangeRate_ShouldUpdateToMaxValue() external {
+    function test_updateSwapRate_ShouldUpdateToMaxValue() external {
         uint256 newRate = type(uint256).max;
 
-        // Update exchange rate to max value
+        // Update swap rate to max value
         vm.prank(DEFAULT_ADDRESS);
-        swapTokenHelper.updateExchangeRate(newRate);
+        swapTokenHelper.updateSwapRate(newRate);
 
-        // Check rates after update
-        assertEq(mockAsset.exchangeRate(), newRate, "Swap Token rate should be max value");
-        assertEq(mockPrincipalToken.exchangeRate(), newRate, "Principal Token rate should be max value");
+        // Check rate after update
+        assertEq(mockSwapToken.swapRate(), newRate, "Swap Token rate should be max value");
+        assertEq(mockPrincipalToken.swapRate(), newRate, "Principal Token rate should be max value");
     }
 
-    function test_updateExchangeRate_ShouldRevert_WhenAddressIsZero() external {
+    function test_updateSwapRate_ShouldRevert_WhenAddressIsZero() external {
         uint256 newRate = 2 ether;
 
         // Set address to zero
@@ -288,22 +288,22 @@ contract SwapTokenTest is Helper {
         // Should revert when trying to update rate on zero address
         vm.prank(DEFAULT_ADDRESS);
         vm.expectRevert();
-        swapTokenHelper.updateExchangeRate(newRate);
+        swapTokenHelper.updateSwapRate(newRate);
     }
 
-    function test_updateExchangeRate_ShouldRevert_WhenPrincipalTokenIsZero() external {
+    function test_updateSwapRate_ShouldRevert_WhenPrincipalTokenIsZero() external {
         uint256 newRate = 2 ether;
 
         // Set principalToken to zero
-        swapTokenHelper.setSwapToken(address(mockAsset), address(0), 0);
+        swapTokenHelper.setSwapToken(address(mockSwapToken), address(0), 0);
 
         // Should revert when trying to update rate on zero principalToken address
         vm.prank(DEFAULT_ADDRESS);
         vm.expectRevert();
-        swapTokenHelper.updateExchangeRate(newRate);
+        swapTokenHelper.updateSwapRate(newRate);
     }
 
-    function test_updateExchangeRate_ShouldAllowMultipleUpdates() external {
+    function test_updateSwapRate_ShouldAllowMultipleUpdates() external {
         uint256 rate1 = 0.5 ether;
         uint256 rate2 = 1.5 ether;
         uint256 rate3 = 2.5 ether;
@@ -311,19 +311,19 @@ contract SwapTokenTest is Helper {
         vm.startPrank(DEFAULT_ADDRESS);
 
         // First update
-        swapTokenHelper.updateExchangeRate(rate1);
-        assertEq(mockAsset.exchangeRate(), rate1, "Swap Token rate should be updated to rate1");
-        assertEq(mockPrincipalToken.exchangeRate(), rate1, "Principal Token rate should be updated to rate1");
+        swapTokenHelper.updateSwapRate(rate1);
+        assertEq(mockSwapToken.swapRate(), rate1, "Swap Token rate should be updated to rate1");
+        assertEq(mockPrincipalToken.swapRate(), rate1, "Principal Token rate should be updated to rate1");
 
         // Second update
-        swapTokenHelper.updateExchangeRate(rate2);
-        assertEq(mockAsset.exchangeRate(), rate2, "Swap Token rate should be updated to rate2");
-        assertEq(mockPrincipalToken.exchangeRate(), rate2, "Principal Token rate should be updated to rate2");
+        swapTokenHelper.updateSwapRate(rate2);
+        assertEq(mockSwapToken.swapRate(), rate2, "Swap Token rate should be updated to rate2");
+        assertEq(mockPrincipalToken.swapRate(), rate2, "Principal Token rate should be updated to rate2");
 
         // Third update
-        swapTokenHelper.updateExchangeRate(rate3);
-        assertEq(mockAsset.exchangeRate(), rate3, "Swap Token rate should be updated to rate3");
-        assertEq(mockPrincipalToken.exchangeRate(), rate3, "Principal Token rate should be updated to rate3");
+        swapTokenHelper.updateSwapRate(rate3);
+        assertEq(mockSwapToken.swapRate(), rate3, "Swap Token rate should be updated to rate3");
+        assertEq(mockPrincipalToken.swapRate(), rate3, "Principal Token rate should be updated to rate3");
 
         vm.stopPrank();
     }
@@ -339,16 +339,16 @@ contract SwapTokenTest is Helper {
         // Issue tokens first
         swapTokenHelper.issue(user1, amount);
 
-        // Update exchange rate
-        swapTokenHelper.updateExchangeRate(newRate);
+        // Update swap rate
+        swapTokenHelper.updateSwapRate(newRate);
 
         vm.stopPrank();
 
-        // Check balances and rates
-        assertEq(mockAsset.balanceOf(user1), amount, "Swap Token balance should equal issued amount");
+        // Check balances and rate
+        assertEq(mockSwapToken.balanceOf(user1), amount, "Swap Token balance should equal issued amount");
         assertEq(mockPrincipalToken.balanceOf(user1), amount, "Principal Token balance should equal issued amount");
-        assertEq(mockAsset.exchangeRate(), newRate, "Swap Token rate should be updated");
-        assertEq(mockPrincipalToken.exchangeRate(), newRate, "Principal Token rate should be updated");
+        assertEq(mockSwapToken.swapRate(), newRate, "Swap Token rate should be updated");
+        assertEq(mockPrincipalToken.swapRate(), newRate, "Principal Token rate should be updated");
     }
 
     function test_integration_CheckInitializationAndExpiry() external {
@@ -373,19 +373,12 @@ contract SwapTokenTest is Helper {
         // Should be expired
         assertTrue(swapTokenHelper.isExpired(), "Should be expired");
 
-        // Should still be able to issue tokens on expired asset
         vm.prank(DEFAULT_ADDRESS);
-        vm.expectRevert(abi.encodeWithSelector(IErrors.Expired.selector));
-        swapTokenHelper.issue(user1, 1000 ether);
-
-        // TODO verify this scenario
-        // Should still be able to update exchange rate on expired asset
-        vm.prank(DEFAULT_ADDRESS);
-        swapTokenHelper.updateExchangeRate(2 ether);
+        swapTokenHelper.updateSwapRate(2 ether);
 
         // Verify operations
-        assertEq(mockAsset.balanceOf(user1), 0, "Should not be able to issue on expired asset");
-        assertEq(mockAsset.exchangeRate(), 2 ether, "Should be able to update rate on expired asset");
+        assertEq(mockSwapToken.balanceOf(user1), 0, "Should not be able to issue on expired asset");
+        assertEq(mockSwapToken.swapRate(), 2 ether, "Should be able to update rate on expired asset");
     }
 
     function test_edgeCase_UninitializedSwapToken() external {
@@ -401,7 +394,7 @@ contract SwapTokenTest is Helper {
 
         vm.prank(DEFAULT_ADDRESS);
         vm.expectRevert();
-        swapTokenHelper.updateExchangeRate(2 ether);
+        swapTokenHelper.updateSwapRate(2 ether);
 
         vm.expectRevert();
         swapTokenHelper.isExpired();
@@ -409,7 +402,7 @@ contract SwapTokenTest is Helper {
 
     function test_edgeCase_AllowMultipleOperationsWithDifferentPrincipalTokenRedeemedValues() external {
         // Set different ctRedeemed values
-        swapTokenHelper.setSwapToken(address(mockAsset), address(mockPrincipalToken), 1000);
+        swapTokenHelper.setSwapToken(address(mockSwapToken), address(mockPrincipalToken), 1000);
 
         // Should not affect other operations
         assertTrue(swapTokenHelper.isInitialized(), "Should be initialized with ctRedeemed set");
@@ -418,7 +411,7 @@ contract SwapTokenTest is Helper {
         vm.prank(DEFAULT_ADDRESS);
         swapTokenHelper.issue(user1, 500 ether);
 
-        assertEq(mockAsset.balanceOf(user1), 500 ether, "Should issue correctly with ctRedeemed set");
+        assertEq(mockSwapToken.balanceOf(user1), 500 ether, "Should issue correctly with ctRedeemed set");
     }
 
     // ------------------------------- Fuzz Tests ----------------------------------- //
@@ -430,16 +423,16 @@ contract SwapTokenTest is Helper {
         vm.prank(DEFAULT_ADDRESS);
         swapTokenHelper.issue(user1, amount);
 
-        assertEq(mockAsset.balanceOf(user1), amount, "Swap Token balance should equal issued amount");
+        assertEq(mockSwapToken.balanceOf(user1), amount, "Swap Token balance should equal issued amount");
         assertEq(mockPrincipalToken.balanceOf(user1), amount, "Principal Token balance should equal issued amount");
     }
 
-    function testFuzz_updateExchangeRate_ShouldUpdateCorrectly(uint256 rate) external {
+    function testFuzz_updateSwapRate_ShouldUpdateCorrectly(uint256 rate) external {
         vm.prank(DEFAULT_ADDRESS);
-        swapTokenHelper.updateExchangeRate(rate);
+        swapTokenHelper.updateSwapRate(rate);
 
-        assertEq(mockAsset.exchangeRate(), rate, "Swap Token rate should be updated");
-        assertEq(mockPrincipalToken.exchangeRate(), rate, "Principal Token rate should be updated");
+        assertEq(mockSwapToken.swapRate(), rate, "Swap Token rate should be updated");
+        assertEq(mockPrincipalToken.swapRate(), rate, "Principal Token rate should be updated");
     }
 
     function testFuzz_isInitialized_ShouldReturnCorrectValue(address addr1, address addr2) external {

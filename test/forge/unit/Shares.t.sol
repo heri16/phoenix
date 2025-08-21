@@ -2,25 +2,28 @@ pragma solidity ^0.8.30;
 
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
-import {Shares} from "contracts/core/assets/Shares.sol";
+import {PoolShare} from "contracts/core/assets/PoolShare.sol";
 import {IErrors} from "contracts/interfaces/IErrors.sol";
 import {Market, MarketId, MarketLibrary} from "contracts/libraries/Market.sol";
 import {Helper} from "test/forge/Helper.sol";
-import {DummyWETH} from "test/forge/utils/dummy/DummyWETH.sol";
+import {ERC20Mock} from "test/mocks/ERC20Mock.sol";
 
 contract SharesTest is Helper {
-    DummyWETH collateralAsset;
-    DummyWETH referenceAsset;
-    Shares principalToken;
-    Shares swapToken;
-    Shares asset;
+    ERC20Mock collateralAsset;
+    ERC20Mock referenceAsset;
+    PoolShare principalToken;
+    PoolShare swapToken;
+    PoolShare share;
 
-    MarketId marketId;
+    MarketId poolId;
 
     address user1;
 
     uint256 public constant depositAmount = 1 ether;
     uint256 public constant swapAmount = 0.123 ether;
+
+    event Deposit(address indexed sender, address indexed owner, uint256 assets, uint256 shares);
+    event Withdraw(address indexed sender, address indexed receiver, address indexed owner, uint256 assets, uint256 shares);
 
     function setUp() external {
         user1 = makeAddr("user1");
@@ -29,7 +32,7 @@ contract SharesTest is Helper {
 
         deployContracts(DEFAULT_ADDRESS, DEFAULT_ADDRESS);
 
-        (collateralAsset, referenceAsset, marketId) = createMarket(block.timestamp + 1 days);
+        (collateralAsset, referenceAsset, poolId) = createMarket(block.timestamp + 1 days);
         vm.deal(DEFAULT_ADDRESS, 100_000_000_000 ether);
         collateralAsset.deposit{value: 1_000_000_000 ether}();
         referenceAsset.deposit{value: 1_000_000_000 ether}();
@@ -40,20 +43,20 @@ contract SharesTest is Helper {
         corkPool.deposit(defaultCurrencyId, depositAmount, currentCaller());
 
         (address _ct, address _swapToken) = corkPool.shares(defaultCurrencyId);
-        principalToken = Shares(_ct);
-        swapToken = Shares(_swapToken);
+        principalToken = PoolShare(_ct);
+        swapToken = PoolShare(_swapToken);
 
-        asset = new Shares("pairName", user1, block.timestamp + 1, 12_345);
+        share = new PoolShare("pairName", "symbol", user1, block.timestamp + 1, 12_345);
     }
 
     function fetchProtocolGeneralInfo() internal {
         (address _ct, address _swapToken) = corkPool.shares(defaultCurrencyId);
-        principalToken = Shares(_ct);
-        swapToken = Shares(_swapToken);
+        principalToken = PoolShare(_ct);
+        swapToken = PoolShare(_swapToken);
         swapToken.approve(address(corkPool), 100_000_000_000 ether);
     }
 
-    function assertReserve(Shares token, uint256 expectedRa, uint256 expectedPa) internal {
+    function assertReserve(PoolShare token, uint256 expectedRa, uint256 expectedPa) internal {
         (uint256 collateralAsset, uint256 referenceAsset) = token.getReserves();
 
         vm.assertEq(collateralAsset, expectedRa);
@@ -63,19 +66,19 @@ contract SharesTest is Helper {
     // ------------------------------- Constructor ----------------------------------- //
     function test_ConstructorShouldRevertWhenPassedInvalidData() external {
         vm.warp(block.timestamp + 10);
-        try new Shares("pairName", DEFAULT_ADDRESS, block.timestamp - 2, 1) {
+        try new PoolShare("pairName", "symbol", DEFAULT_ADDRESS, block.timestamp - 2, 1) {
             // should not reach here
             vm.assertEq(true, false);
         } catch (bytes memory reason) {
             // Verify it's the correct error
             bytes4 selector = bytes4(reason);
-            vm.assertEq(selector, IErrors.Expired.selector);
+            vm.assertEq(selector, IErrors.InvalidExpiry.selector);
         }
     }
 
     function test_ConstructorShouldRevertWhenPassedInvalidExpiry() external {
         vm.warp(block.timestamp + 10);
-        try new Shares("pairName", DEFAULT_ADDRESS, 0, 1) {
+        try new PoolShare("pairName", "symbol", DEFAULT_ADDRESS, 0, 1) {
             // should not reach here
             vm.assertEq(true, false);
         } catch (bytes memory reason) {
@@ -87,7 +90,7 @@ contract SharesTest is Helper {
 
     function test_ConstructorShouldRevertWhenPassedInvalidOwner() external {
         vm.warp(block.timestamp + 10);
-        try new Shares("pairName", address(0), block.timestamp + 1, 1) {
+        try new PoolShare("pairName", "symbol", address(0), block.timestamp + 1, 1) {
             // should not reach here
             vm.assertEq(true, false);
         } catch (bytes memory reason) {
@@ -98,36 +101,36 @@ contract SharesTest is Helper {
     }
 
     function test_ConstructorShouldWorkCorrectly() external {
-        // exchange rate
-        assertEq(asset.exchangeRate(), 12_345);
+        // swap rate
+        assertEq(share.swapRate(), 12_345);
 
         // expiry
-        assertEq(asset.expiry(), block.timestamp + 1);
-        assertEq(asset.issuedAt(), block.timestamp);
-        assertEq(asset.isExpired(), false);
+        assertEq(share.expiry(), block.timestamp + 1);
+        assertEq(share.issuedAt(), block.timestamp);
+        assertEq(share.isExpired(), false);
 
-        // Shares
-        assertEq(asset.pairName(), "pairName");
-        assertEq(address(asset.corkPool()), address(0));
-        assertEq(asset.factory(), DEFAULT_ADDRESS);
-        assertEq(asset.owner(), user1);
+        // PoolShare
+        assertEq(share.pairName(), "pairName");
+        assertEq(address(share.poolManager()), address(0));
+        assertEq(share.factory(), DEFAULT_ADDRESS);
+        assertEq(share.owner(), user1);
 
         // ERC20
-        assertEq(asset.totalSupply(), 0);
-        assertEq(asset.balanceOf(DEFAULT_ADDRESS), 0);
-        assertEq(asset.allowance(DEFAULT_ADDRESS, address(corkPool)), 0);
-        assertEq(asset.decimals(), 18);
-        assertEq(asset.symbol(), "pairName");
-        assertEq(asset.name(), "pairName");
+        assertEq(share.totalSupply(), 0);
+        assertEq(share.balanceOf(DEFAULT_ADDRESS), 0);
+        assertEq(share.allowance(DEFAULT_ADDRESS, address(corkPool)), 0);
+        assertEq(share.decimals(), 18);
+        assertEq(share.symbol(), "symbol");
+        assertEq(share.name(), "pairName");
     }
     //-----------------------------------------------------------------------------------------------------//
 
     //---------------------------------- IsExpired ----------------------------------//
     function test_IsExpiredShouldReturnCorrectValue() external {
-        assertFalse(asset.isExpired());
+        assertFalse(share.isExpired());
 
         vm.warp(block.timestamp + 10);
-        assertTrue(asset.isExpired());
+        assertTrue(share.isExpired());
     }
     //-----------------------------------------------------------------------------------------------------//
 
@@ -135,19 +138,19 @@ contract SharesTest is Helper {
     function test_SetMarketIdShouldRevertWhenCalledByNonFactory() external {
         vm.startPrank(user1);
         vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, user1));
-        asset.setMarketId(marketId);
+        share.setPoolId(poolId);
         vm.stopPrank();
     }
 
     function test_SetMarketIdShouldWorkCorrectly() external {
-        assertFalse(MarketId.unwrap(asset.marketId()) == MarketId.unwrap(marketId));
+        assertFalse(MarketId.unwrap(share.poolId()) == MarketId.unwrap(poolId));
 
         vm.startPrank(DEFAULT_ADDRESS);
-        asset.setMarketId(marketId);
+        share.setPoolId(poolId);
         vm.stopPrank();
 
         // Compare MarketId values directly
-        assertTrue(MarketId.unwrap(asset.marketId()) == MarketId.unwrap(marketId));
+        assertTrue(MarketId.unwrap(share.poolId()) == MarketId.unwrap(poolId));
     }
     // ----------------------------------------------------------------------------------------------------//
 
@@ -155,18 +158,18 @@ contract SharesTest is Helper {
     function test_SetCorkPoolShouldRevertWhenCalledByNonFactory() external {
         vm.startPrank(user1);
         vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, user1));
-        asset.setCorkPool(address(0));
+        share.setPoolManager(address(0));
         vm.stopPrank();
     }
 
     function test_SetCorkPoolShouldWorkCorrectly() external {
-        assertEq(address(asset.corkPool()), address(0));
+        assertEq(address(share.poolManager()), address(0));
 
         vm.startPrank(DEFAULT_ADDRESS);
-        asset.setCorkPool(address(corkPool));
+        share.setPoolManager(address(corkPool));
         vm.stopPrank();
 
-        assertEq(address(asset.corkPool()), address(corkPool));
+        assertEq(address(share.poolManager()), address(corkPool));
     }
     // -------------------------------------------------------------------------------------------------------//
 
@@ -174,45 +177,38 @@ contract SharesTest is Helper {
     function test_MintShouldRevertWhenCalledByNonOwner() external {
         vm.startPrank(DEFAULT_ADDRESS);
         vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, DEFAULT_ADDRESS));
-        asset.mint(user1, 1 ether);
+        share.mint(user1, 1 ether);
         vm.stopPrank();
     }
 
     function test_MintShouldWorkCorrectly() external {
-        assertEq(asset.balanceOf(DEFAULT_ADDRESS), 0);
+        assertEq(share.balanceOf(DEFAULT_ADDRESS), 0);
 
         vm.startPrank(user1);
-        asset.mint(DEFAULT_ADDRESS, 1.234 ether);
+        share.mint(DEFAULT_ADDRESS, 1.234 ether);
         vm.stopPrank();
 
-        assertEq(asset.balanceOf(DEFAULT_ADDRESS), 1.234 ether);
+        assertEq(share.balanceOf(DEFAULT_ADDRESS), 1.234 ether);
     }
 
-    function test_MintShouldRevertWhenAssetIsExpired() external {
-        vm.warp(block.timestamp + 10);
-        vm.startPrank(user1);
-        vm.expectRevert(abi.encodeWithSelector(IErrors.Expired.selector));
-        asset.mint(DEFAULT_ADDRESS, 1 ether);
-        vm.stopPrank();
-    }
     // ----------------------------------------------------------------------------------------------------//
 
     //-------------------------------------------- UpdateRate ---------------------------------------------//
     function test_UpdateRateShouldRevertWhenCalledByNonOwner() external {
         vm.startPrank(DEFAULT_ADDRESS);
         vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, DEFAULT_ADDRESS));
-        asset.updateRate(1.234 ether);
+        share.updateSwapRate(1.234 ether);
         vm.stopPrank();
     }
 
     function test_UpdateRateShouldWorkCorrectly() external {
-        assertEq(asset.exchangeRate(), 12_345);
+        assertEq(share.swapRate(), 12_345);
 
         vm.startPrank(user1);
-        asset.updateRate(1.234 ether);
+        share.updateSwapRate(1.234 ether);
         vm.stopPrank();
 
-        assertEq(asset.exchangeRate(), 1.234 ether);
+        assertEq(share.swapRate(), 1.234 ether);
     }
     // ----------------------------------------------------------------------------------------------------//
 
@@ -231,7 +227,7 @@ contract SharesTest is Helper {
         assertReserve(principalToken, depositAmount, 0);
         assertReserve(swapToken, depositAmount, 0);
 
-        Shares(principalToken).approve(address(corkPool), type(uint128).max);
+        PoolShare(principalToken).approve(address(corkPool), type(uint128).max);
         corkPool.redeem(defaultCurrencyId, depositAmount, DEFAULT_ADDRESS, DEFAULT_ADDRESS);
 
         assertReserve(principalToken, 0, 0);
@@ -243,25 +239,25 @@ contract SharesTest is Helper {
     function test_TransferFromShouldRevertWhenCalledByNonOwner() external {
         vm.startPrank(DEFAULT_ADDRESS);
         vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, DEFAULT_ADDRESS));
-        asset.transferFrom(DEFAULT_ADDRESS, user1, address(this), 1 ether);
+        share.transferFrom(DEFAULT_ADDRESS, user1, address(this), 1 ether);
         vm.stopPrank();
     }
 
     function test_TransferFromShouldWorkCorrectlyWhenSenderIsOwner() external {
         // Setup: mint some tokens to user1
         vm.startPrank(user1);
-        asset.mint(user1, 10 ether);
+        share.mint(user1, 10 ether);
         vm.stopPrank();
 
-        assertEq(asset.balanceOf(user1), 10 ether);
-        assertEq(asset.balanceOf(DEFAULT_ADDRESS), 0);
+        assertEq(share.balanceOf(user1), 10 ether);
+        assertEq(share.balanceOf(DEFAULT_ADDRESS), 0);
 
         // Transfer from user1 to DEFAULT_ADDRESS
         vm.prank(user1);
-        asset.transferFrom(user1, user1, DEFAULT_ADDRESS, 5 ether);
+        share.transferFrom(user1, user1, DEFAULT_ADDRESS, 5 ether);
 
-        assertEq(asset.balanceOf(user1), 5 ether);
-        assertEq(asset.balanceOf(DEFAULT_ADDRESS), 5 ether);
+        assertEq(share.balanceOf(user1), 5 ether);
+        assertEq(share.balanceOf(DEFAULT_ADDRESS), 5 ether);
     }
 
     function test_TransferFromShouldSpendAllowanceWhenSenderNotOwner() external {
@@ -269,19 +265,19 @@ contract SharesTest is Helper {
 
         // Setup: mint tokens and approve spender
         vm.startPrank(user1);
-        asset.mint(user1, 10 ether);
-        asset.approve(spender, 5 ether);
+        share.mint(user1, 10 ether);
+        share.approve(spender, 5 ether);
         vm.stopPrank();
 
-        assertEq(asset.allowance(user1, spender), 5 ether);
+        assertEq(share.allowance(user1, spender), 5 ether);
 
         // Transfer using spender address
         vm.prank(user1);
-        asset.transferFrom(spender, user1, DEFAULT_ADDRESS, 3 ether);
+        share.transferFrom(spender, user1, DEFAULT_ADDRESS, 3 ether);
 
-        assertEq(asset.allowance(user1, spender), 2 ether);
-        assertEq(asset.balanceOf(user1), 7 ether);
-        assertEq(asset.balanceOf(DEFAULT_ADDRESS), 3 ether);
+        assertEq(share.allowance(user1, spender), 2 ether);
+        assertEq(share.balanceOf(user1), 7 ether);
+        assertEq(share.balanceOf(DEFAULT_ADDRESS), 3 ether);
     }
 
     function test_TransferFromShouldRevertWhenInsufficientAllowance() external {
@@ -289,13 +285,80 @@ contract SharesTest is Helper {
 
         // Setup: mint tokens and approve spender
         vm.startPrank(user1);
-        asset.mint(user1, 10 ether);
-        asset.approve(spender, 2 ether);
+        share.mint(user1, 10 ether);
+        share.approve(spender, 2 ether);
         vm.stopPrank();
 
         // Try to transfer more than allowance
         vm.prank(user1);
         vm.expectRevert();
-        asset.transferFrom(spender, user1, DEFAULT_ADDRESS, 3 ether);
+        share.transferFrom(spender, user1, DEFAULT_ADDRESS, 3 ether);
     }
+
+    // ----------------------------------------------------------------------------------------------------//
+
+    //----------------------------------------- EmitDeposit -----------------------------------------//
+    function test_EmitDepositShouldRevertWhenCalledByNonOwner() external {
+        vm.startPrank(DEFAULT_ADDRESS);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, DEFAULT_ADDRESS));
+        share.emitDeposit(DEFAULT_ADDRESS, user1, 1 ether, 0.5 ether);
+        vm.stopPrank();
+    }
+
+    function test_EmitDepositShouldWorkCorrectlyAndEmitEvent() external {
+        address sender = makeAddr("sender");
+        address receiver = makeAddr("receiver");
+        uint256 assets = 1.5 ether;
+        uint256 shares = 0.75 ether;
+
+        // Expect the Deposit event to be emitted with correct parameters
+        vm.expectEmit(true, true, false, true);
+        emit Deposit(sender, receiver, assets, shares);
+
+        vm.startPrank(user1);
+        share.emitDeposit(sender, receiver, assets, shares);
+        vm.stopPrank();
+    }
+    // ----------------------------------------------------------------------------------------------------//
+
+    //----------------------------------------- EmitWithdraw -----------------------------------------//
+    function test_EmitWithdrawShouldRevertWhenCalledByNonOwner() external {
+        vm.startPrank(DEFAULT_ADDRESS);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, DEFAULT_ADDRESS));
+        share.emitWithdraw(DEFAULT_ADDRESS, user1, DEFAULT_ADDRESS, 1 ether, 0.5 ether);
+        vm.stopPrank();
+    }
+
+    function test_EmitWithdrawShouldWorkCorrectlyAndEmitEvent() external {
+        address sender = makeAddr("sender");
+        address receiver = makeAddr("receiver");
+        address owner = sender;
+        uint256 assets = 2 ether;
+        uint256 shares = 1 ether;
+
+        // Expect the Withdraw event to be emitted with correct parameters
+        vm.expectEmit(true, true, true, true);
+        emit Withdraw(sender, receiver, owner, assets, shares);
+
+        vm.startPrank(user1);
+        share.emitWithdraw(sender, receiver, owner, assets, shares);
+        vm.stopPrank();
+    }
+
+    function test_EmitWithdrawShouldEmitEventWithDifferentOwnerAndReceiver() external {
+        address sender = makeAddr("sender");
+        address receiver = makeAddr("receiver");
+        address owner = makeAddr("owner");
+        uint256 assets = 1.25 ether;
+        uint256 shares = 0.625 ether;
+
+        // Expect the Withdraw event to be emitted with different owner and receiver
+        vm.expectEmit(true, true, true, true);
+        emit Withdraw(sender, receiver, owner, assets, shares);
+
+        vm.startPrank(user1);
+        share.emitWithdraw(sender, receiver, owner, assets, shares);
+        vm.stopPrank();
+    }
+    // ----------------------------------------------------------------------------------------------------//
 }

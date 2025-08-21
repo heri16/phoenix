@@ -1,25 +1,26 @@
 pragma solidity ^0.8.30;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {Shares} from "contracts/core/assets/Shares.sol";
+import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
+import {PoolShare} from "contracts/core/assets/PoolShare.sol";
 import {IErrors} from "contracts/interfaces/IErrors.sol";
 import {Market, MarketId, MarketLibrary} from "contracts/libraries/Market.sol";
 import {TransferHelper} from "contracts/libraries/TransferHelper.sol";
 import {Helper} from "test/forge/Helper.sol";
-import {DummyWETH} from "test/forge/utils/dummy/DummyWETH.sol";
+import {ERC20Mock} from "test/mocks/ERC20Mock.sol";
 
 contract UnwindExerciseTest is Helper {
-    DummyWETH internal collateralAsset;
-    DummyWETH internal referenceAsset;
+    ERC20Mock internal collateralAsset;
+    ERC20Mock internal referenceAsset;
 
     uint256 public constant DEFAULT_DEPOSIT_AMOUNT = 10_000 ether;
-    uint256 public constant EXPIRY = 1 days;
+    uint256 public constant EXPIRY = 1000 days;
 
     address internal user2 = address(30);
     address internal user3 = address(40);
 
-    Shares internal swapToken;
-    Shares internal principalToken;
+    PoolShare internal swapToken;
+    PoolShare internal principalToken;
 
     struct BalanceSnapshot {
         uint256 collateralAsset;
@@ -59,8 +60,8 @@ contract UnwindExerciseTest is Helper {
         referenceAsset.approve(address(corkPool), type(uint256).max);
 
         (address _ct, address _swapToken) = corkPool.shares(defaultCurrencyId);
-        swapToken = Shares(_swapToken);
-        principalToken = Shares(_ct);
+        swapToken = PoolShare(_swapToken);
+        principalToken = PoolShare(_ct);
 
         // Initial deposit to provide liquidity
         corkPool.deposit(defaultCurrencyId, DEFAULT_DEPOSIT_AMOUNT, currentCaller());
@@ -128,7 +129,7 @@ contract UnwindExerciseTest is Helper {
             shares,
             user3,
             0, // minCompensationOut
-            type(uint256).max // maxAssetIn
+            type(uint256).max // maxAssetsIn
         );
 
         BalanceSnapshot memory afterSnapshot = takeBalanceSnapshot(user3);
@@ -172,22 +173,28 @@ contract UnwindExerciseTest is Helper {
         vm.startPrank(DEFAULT_ADDRESS);
 
         // Create market with different decimals
-        (DummyWETH _collateralAsset, DummyWETH _referenceAsset, MarketId _marketId) = createMarket(EXPIRY, raDecimals, paDecimals);
+        MarketId _marketId;
+        uint256 initialDeposit;
+        {
+            ERC20Mock _collateralAsset;
+            ERC20Mock _referenceAsset;
+            (_collateralAsset, _referenceAsset, _marketId) = createMarket(EXPIRY, raDecimals, paDecimals);
 
-        vm.deal(DEFAULT_ADDRESS, type(uint256).max);
-        _collateralAsset.deposit{value: type(uint128).max}();
-        _referenceAsset.deposit{value: type(uint128).max}();
+            vm.deal(DEFAULT_ADDRESS, type(uint256).max);
+            _collateralAsset.deposit{value: type(uint128).max}();
+            _referenceAsset.deposit{value: type(uint128).max}();
 
-        // Setup approvals and initial deposit
-        _collateralAsset.approve(address(corkPool), type(uint256).max);
-        _referenceAsset.approve(address(corkPool), type(uint256).max);
+            // Setup approvals and initial deposit
+            _collateralAsset.approve(address(corkPool), type(uint256).max);
+            _referenceAsset.approve(address(corkPool), type(uint256).max);
 
-        uint256 initialDeposit = TransferHelper.tokenNativeDecimalsToFixed(DEFAULT_DEPOSIT_AMOUNT, address(_collateralAsset));
-        corkPool.deposit(_marketId, TransferHelper.fixedToTokenNativeDecimals(initialDeposit, address(_collateralAsset)), currentCaller());
+            initialDeposit = TransferHelper.tokenNativeDecimalsToFixed(DEFAULT_DEPOSIT_AMOUNT, _collateralAsset.decimals());
+            corkPool.deposit(_marketId, TransferHelper.fixedToTokenNativeDecimals(initialDeposit, _collateralAsset.decimals()), currentCaller());
+        }
 
         // Setup exercise scenario
-        (address _ct, address _swapToken) = corkPool.shares(_marketId);
-        Shares _stSwapToken = Shares(_swapToken);
+        (, address _swapToken) = corkPool.shares(_marketId);
+        PoolShare _stSwapToken = PoolShare(_swapToken);
 
         // Exercise to provide reference asset liquidity
         uint256 exerciseShares = initialDeposit / 4; // Exercise 25% of deposit
@@ -200,7 +207,7 @@ contract UnwindExerciseTest is Helper {
             // Basic sanity checks
             assertGt(assetIn, 0, "Asset in should be positive");
             assertGt(compensationOut, 0, "Compensation out should be positive");
-            assertGt(assetIn, shares, "Asset in should be greater than shares due to fees");
+            assertGt(assetIn, TransferHelper.normalizeDecimals(shares, 18, raDecimals), "Asset in should be greater than shares due to fees");
         }
 
         vm.stopPrank();
@@ -217,19 +224,19 @@ contract UnwindExerciseTest is Helper {
         MarketId marketId = _setupMarketWithDecimals(raDecimals, paDecimals);
         address swapTokenAddr = _setupLiquidityForUnwindExercise(marketId);
 
-        if (shares <= IERC20(swapTokenAddr).balanceOf(DEFAULT_ADDRESS)) _executeAndVerifyUnwindExercise(marketId, shares);
+        if (shares <= IERC20(swapTokenAddr).balanceOf(DEFAULT_ADDRESS)) _executeAndVerifyUnwindExercise(marketId, shares, raDecimals);
 
         vm.stopPrank();
     }
 
     function _setupMarketWithDecimals(uint8 raDecimals, uint8 paDecimals) internal returns (MarketId) {
-        (DummyWETH _collateralAsset, DummyWETH _referenceAsset, MarketId _marketId) = createMarket(EXPIRY, raDecimals, paDecimals);
+        (ERC20Mock _collateralAsset, ERC20Mock _referenceAsset, MarketId _marketId) = createMarket(EXPIRY, raDecimals, paDecimals);
 
         _collateralAsset.approve(address(corkPool), type(uint256).max);
         _referenceAsset.approve(address(corkPool), type(uint256).max);
 
-        uint256 depositAmountFixed = TransferHelper.tokenNativeDecimalsToFixed(DEFAULT_DEPOSIT_AMOUNT, address(_collateralAsset));
-        uint256 depositAmountNative = TransferHelper.fixedToTokenNativeDecimals(depositAmountFixed, address(_collateralAsset));
+        uint256 depositAmountFixed = TransferHelper.tokenNativeDecimalsToFixed(DEFAULT_DEPOSIT_AMOUNT, _collateralAsset.decimals());
+        uint256 depositAmountNative = TransferHelper.fixedToTokenNativeDecimals(depositAmountFixed, _collateralAsset.decimals());
 
         vm.deal(DEFAULT_ADDRESS, type(uint256).max);
         _collateralAsset.deposit{value: type(uint128).max}();
@@ -243,7 +250,7 @@ contract UnwindExerciseTest is Helper {
     function _setupLiquidityForUnwindExercise(MarketId marketId) internal returns (address) {
         (, address swapTokenAddr) = corkPool.shares(marketId);
 
-        uint256 exerciseShares = TransferHelper.tokenNativeDecimalsToFixed(DEFAULT_DEPOSIT_AMOUNT / 4, swapTokenAddr);
+        uint256 exerciseShares = TransferHelper.tokenNativeDecimalsToFixed(DEFAULT_DEPOSIT_AMOUNT / 4, IERC20Metadata(swapTokenAddr).decimals());
         uint256 availableShares = IERC20(swapTokenAddr).balanceOf(DEFAULT_ADDRESS);
 
         if (exerciseShares > 0 && exerciseShares <= availableShares) corkPool.exercise(marketId, exerciseShares, 0, DEFAULT_ADDRESS, 0, type(uint256).max);
@@ -251,7 +258,7 @@ contract UnwindExerciseTest is Helper {
         return swapTokenAddr;
     }
 
-    function _executeAndVerifyUnwindExercise(MarketId marketId, uint256 shares) internal {
+    function _executeAndVerifyUnwindExercise(MarketId marketId, uint256 shares, uint8 raDecimals) internal {
         (uint256 previewAssetIn, uint256 previewCompensationOut) = corkPool.previewUnwindExercise(marketId, shares);
 
         (uint256 actualAssetIn, uint256 actualCompensationOut) = corkPool.unwindExercise(marketId, shares, DEFAULT_ADDRESS, 0, type(uint256).max);
@@ -260,7 +267,7 @@ contract UnwindExerciseTest is Helper {
         assertEq(actualCompensationOut, previewCompensationOut, "Actual compensation out should match preview");
         assertGt(actualAssetIn, 0, "Asset in should be positive");
         assertGt(actualCompensationOut, 0, "Compensation out should be positive");
-        assertGt(actualAssetIn, shares, "Asset in should be greater than shares due to fees");
+        assertGt(actualAssetIn, TransferHelper.normalizeDecimals(shares, 18, raDecimals), "Asset in should be greater than shares due to fees");
     }
 
     function testFuzz_unwindExercise_differentFees(uint256 feePercentage, uint256 shares) public {
@@ -271,7 +278,7 @@ contract UnwindExerciseTest is Helper {
         vm.startPrank(DEFAULT_ADDRESS);
 
         // Create market with specific fee
-        (DummyWETH _collateralAsset, DummyWETH _referenceAsset, MarketId _marketId) = createMarket(EXPIRY, feePercentage);
+        (ERC20Mock _collateralAsset, ERC20Mock _referenceAsset, MarketId _marketId) = createMarket(EXPIRY, feePercentage);
 
         vm.deal(DEFAULT_ADDRESS, type(uint256).max);
         _collateralAsset.deposit{value: type(uint128).max}();
@@ -301,13 +308,14 @@ contract UnwindExerciseTest is Helper {
 
     function testFuzz_unwindExercise_differentRates(uint256 rateScaled, uint256 shares) public {
         // Scale rate to 0.9-1.0 (90%-100%)
+        vm.warp(block.timestamp + 100 days);
         uint256 rate = bound(rateScaled, 0.9 ether, 1.0 ether);
         shares = bound(shares, 10 ether, 500 ether);
 
         vm.startPrank(DEFAULT_ADDRESS);
 
         // Create market
-        (DummyWETH _collateralAsset, DummyWETH _referenceAsset, MarketId _marketId) = createMarket(EXPIRY);
+        (ERC20Mock _collateralAsset, ERC20Mock _referenceAsset, MarketId _marketId) = createMarket(EXPIRY);
 
         vm.deal(DEFAULT_ADDRESS, type(uint256).max);
         _collateralAsset.deposit{value: type(uint128).max}();
@@ -316,8 +324,8 @@ contract UnwindExerciseTest is Helper {
         _collateralAsset.approve(address(corkPool), type(uint256).max);
         _referenceAsset.approve(address(corkPool), type(uint256).max);
 
-        // Update exchange rate
-        corkConfig.updateCorkPoolRate(_marketId, rate);
+        // Update default oracle rate
+        testOracle.setRate(_marketId, rate);
 
         // Initial deposit
         corkPool.deposit(_marketId, DEFAULT_DEPOSIT_AMOUNT, currentCaller());
@@ -332,8 +340,8 @@ contract UnwindExerciseTest is Helper {
         assertGt(assetIn, 0, "Asset in should be positive");
         assertGt(compensationOut, 0, "Compensation out should be positive");
 
-        // Different rates should affect compensation amount
-        // Lower rates (closer to 0.9) should result in higher compensation
+        // Different rate should affect compensation amount
+        // Lower rate (closer to 0.9) should result in higher compensation
         if (rate < 1 ether) assertGt(compensationOut, shares, "Lower rate should result in greater compensation");
 
         vm.stopPrank();
@@ -358,8 +366,8 @@ contract UnwindExerciseTest is Helper {
             type(uint256).max
         );
 
-        // Test maxAssetIn protection
-        vm.expectRevert(abi.encodeWithSelector(IErrors.ExcessiveInput.selector, previewAssetIn, previewAssetIn - 1));
+        // Test maxAssetsIn protection
+        vm.expectRevert(abi.encodeWithSelector(IErrors.ExceedInput.selector, previewAssetIn, previewAssetIn - 1));
         corkPool.unwindExercise(
             defaultCurrencyId,
             shares,
@@ -377,10 +385,10 @@ contract UnwindExerciseTest is Helper {
         vm.startPrank(user3);
 
         // Should revert with zero shares
-        vm.expectRevert(IErrors.ZeroDeposit.selector);
+        vm.expectRevert(IErrors.InvalidAmount.selector);
         corkPool.previewUnwindExercise(defaultCurrencyId, 0);
 
-        vm.expectRevert(IErrors.ZeroDeposit.selector);
+        vm.expectRevert(IErrors.InvalidAmount.selector);
         corkPool.unwindExercise(defaultCurrencyId, 0, user3, 0, type(uint256).max);
 
         vm.stopPrank();
@@ -457,7 +465,7 @@ contract UnwindExerciseTest is Helper {
         assertGt(compensationOut, 0, "Compensation out should be positive");
     }
 
-    function testFuzz_previewUnwindExercise_comprehensive(uint8 raDecimals, uint8 paDecimals, uint256 feePercentage, uint256 rate, uint256 shares) public {
+    function testFuzz_previewUnwindExercise_comprehensive(uint8 raDecimals, uint8 paDecimals, uint256 feePercentage, uint256 shares, uint256 rate) public {
         // Bound all inputs
         raDecimals = uint8(bound(raDecimals, 6, 18));
         paDecimals = uint8(bound(paDecimals, 6, 18));
@@ -468,7 +476,7 @@ contract UnwindExerciseTest is Helper {
         vm.startPrank(DEFAULT_ADDRESS);
 
         // Create market with fuzzed parameters
-        (DummyWETH _collateralAsset, DummyWETH _referenceAsset, MarketId _marketId) = createMarket(EXPIRY, feePercentage, feePercentage, raDecimals, paDecimals);
+        (ERC20Mock _collateralAsset, ERC20Mock _referenceAsset, MarketId _marketId) = createMarket(EXPIRY, feePercentage, feePercentage, raDecimals, paDecimals);
 
         vm.deal(DEFAULT_ADDRESS, type(uint256).max);
         _collateralAsset.deposit{value: type(uint128).max}();
@@ -477,27 +485,28 @@ contract UnwindExerciseTest is Helper {
         _collateralAsset.approve(address(corkPool), type(uint256).max);
         _referenceAsset.approve(address(corkPool), type(uint256).max);
 
-        // Update rate
-        corkConfig.updateCorkPoolRate(_marketId, rate);
+        // Update default oracle rate
+        testOracle.setRate(_marketId, rate);
 
-        // Setup market with liquidity
-        uint256 depositAmount = TransferHelper.tokenNativeDecimalsToFixed(10_000 ether, address(_collateralAsset));
-        depositAmount = TransferHelper.fixedToTokenNativeDecimals(depositAmount, address(_collateralAsset));
-        corkPool.deposit(_marketId, depositAmount, currentCaller());
+        {
+            // Setup market with liquidity
+            uint256 depositAmount = TransferHelper.tokenNativeDecimalsToFixed(10_000 ether, _collateralAsset.decimals());
+            depositAmount = TransferHelper.fixedToTokenNativeDecimals(depositAmount, _collateralAsset.decimals());
+            corkPool.deposit(_marketId, depositAmount, currentCaller());
 
-        // Exercise to provide reference asset liquidity
-        uint256 exerciseAmount = TransferHelper.tokenNativeDecimalsToFixed(depositAmount / 4, address(_collateralAsset));
-        if (exerciseAmount > 0) corkPool.exercise(_marketId, exerciseAmount, 0, DEFAULT_ADDRESS, 0, type(uint256).max);
-
+            // Exercise to provide reference asset liquidity
+            uint256 exerciseAmount = TransferHelper.tokenNativeDecimalsToFixed(depositAmount / 4, _collateralAsset.decimals());
+            if (exerciseAmount > 0) corkPool.exercise(_marketId, exerciseAmount, 0, DEFAULT_ADDRESS, 0, type(uint256).max);
+        }
         // Test preview
         try corkPool.previewUnwindExercise(_marketId, shares) returns (uint256 assetIn, uint256 compensationOut) {
             // If preview succeeds, verify basic properties
             assertGt(assetIn, 0, "Asset in should be positive");
             assertGt(compensationOut, 0, "Compensation out should be positive");
-            assertGe(assetIn, shares, "Asset in should be at least shares amount");
+            assertGe(assetIn, TransferHelper.normalizeDecimals(shares, 18, raDecimals), "Asset in should be at least shares amount");
 
             // Verify fee is applied (asset in should be greater than shares)
-            if (feePercentage > 0) assertGt(assetIn, shares, "Fee should make asset in greater than shares");
+            if (feePercentage > 0) assertGt(assetIn, TransferHelper.normalizeDecimals(shares, 18, raDecimals), "Fee should make asset in greater than shares");
         } catch {
             // Some combinations might not be valid, which is acceptable
         }
@@ -538,7 +547,7 @@ contract UnwindExerciseTest is Helper {
     function test_maxUnwindExercise_noLiquidity() public {
         // Create a fresh market without any exercise to provide reference asset liquidity
         vm.startPrank(DEFAULT_ADDRESS);
-        (DummyWETH _collateralAsset, DummyWETH _referenceAsset, MarketId _marketId) = createMarket(EXPIRY);
+        (ERC20Mock _collateralAsset, ERC20Mock _referenceAsset, MarketId _marketId) = createMarket(EXPIRY);
 
         _collateralAsset.approve(address(corkPool), type(uint256).max);
         _referenceAsset.approve(address(corkPool), type(uint256).max);
@@ -625,7 +634,7 @@ contract UnwindExerciseTest is Helper {
         vm.startPrank(DEFAULT_ADDRESS);
 
         // Create market
-        (DummyWETH _collateralAsset, DummyWETH _referenceAsset, MarketId _marketId) = createMarket(EXPIRY);
+        (ERC20Mock _collateralAsset, ERC20Mock _referenceAsset, MarketId _marketId) = createMarket(EXPIRY);
 
         vm.deal(DEFAULT_ADDRESS, type(uint256).max);
         _collateralAsset.deposit{value: type(uint128).max}();
@@ -634,8 +643,8 @@ contract UnwindExerciseTest is Helper {
         _collateralAsset.approve(address(corkPool), type(uint256).max);
         _referenceAsset.approve(address(corkPool), type(uint256).max);
 
-        // Update exchange rate
-        corkConfig.updateCorkPoolRate(_marketId, rate);
+        // Update default oracle rate
+        testOracle.setRate(_marketId, rate);
 
         // Initial deposit
         corkPool.deposit(_marketId, DEFAULT_DEPOSIT_AMOUNT, currentCaller());
@@ -653,5 +662,32 @@ contract UnwindExerciseTest is Helper {
         }
 
         vm.stopPrank();
+    }
+
+    function test_FeeConsistencyUnwindSwapUnwindExercise() public {
+        vm.startPrank(DEFAULT_ADDRESS);
+
+        swapToken.approve(address(corkPool), type(uint256).max);
+        corkPool.exercise(defaultCurrencyId, 10 ether, 0, DEFAULT_ADDRESS, 0, 1000 ether);
+
+        uint256 shares = 1 ether;
+        uint256 fee = 5 ether;
+
+        corkConfig.updateUnwindSwapFeeRate(defaultCurrencyId, fee);
+
+        (uint256 assetIn,) = corkPool.previewUnwindExercise(defaultCurrencyId, shares);
+
+        assertApproxEqAbs(assetIn, 1.052631579 ether, 0.0001 ether, "asset in must match");
+        (,,, fee,) = corkPool.previewUnwindSwap(defaultCurrencyId, assetIn);
+
+        assertApproxEqAbs(fee, 0.052631579 ether, 0.0001 ether, "fee  must match");
+
+        (assetIn,) = corkPool.unwindExercise(defaultCurrencyId, shares, currentCaller(), 0, 10_000 ether);
+
+        assertApproxEqAbs(assetIn, 1.052631579 ether, 0.0001 ether, "asset in must match");
+
+        (,,, fee,) = corkPool.unwindSwap(defaultCurrencyId, assetIn, DEFAULT_ADDRESS);
+
+        assertApproxEqAbs(fee, 0.052631579 ether, 0.0001 ether, "fee  must match");
     }
 }

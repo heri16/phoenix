@@ -13,15 +13,15 @@ library Guard {
     using SwapTokenLibrary for SwapToken;
 
     function _onlyNotExpired(SwapToken storage swapToken) internal view {
-        if (swapToken.isExpired()) revert IErrors.Expired();
+        require(!swapToken.isExpired(), IErrors.Expired());
     }
 
     function _onlyExpired(SwapToken storage swapToken) internal view {
-        if (!swapToken.isExpired()) revert IErrors.NotExpired();
+        require(swapToken.isExpired(), IErrors.NotExpired());
     }
 
     function _onlyInitialized(SwapToken storage swapToken) internal view {
-        if (!swapToken.isInitialized()) revert IErrors.Uninitialized();
+        require(swapToken.isInitialized(), IErrors.Uninitialized());
     }
 
     function safeBeforeExpired(SwapToken storage swapToken) internal view {

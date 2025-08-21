@@ -6,12 +6,11 @@
   "license": "MIT",
   "scripts": {
     "prepare": "husky || true",
-    "test": "npx hardhat test",
-    "test:all": "npx hardhat clean && forge clean && forge test -vvv && npx hardhat test",
-    "build": "npx hardhat compile",
-    "compile:organise": "npx hardhat clean && npx hardhat compile && node script/node-scripts/organiseArtifacts.js",
-    "lint:contract": "npx solhint 'contracts/**/*.sol'",
-    "lint:contract:fix": "npx solhint 'contracts/**/*.sol' --fix"
+    "test": "forge test",
+    "test:all": "forge clean && forge test -vvv",
+    "build": "forge build",
+    "compile:organise": "forge clean && forge build && node script/node-scripts/organiseArtifacts.js",
+    "lint:contract": "forge fmt"
   },
   "devDependencies": {
     "@nomicfoundation/hardhat-chai-matchers": "^2.0.7",

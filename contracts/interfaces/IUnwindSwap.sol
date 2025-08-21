@@ -19,9 +19,9 @@ interface IUnwindSwap is IErrors {
      * @param receivedSwapToken the amount of Swap Token received
      * @param fee the fee charged
      * @param feePercentage the fee in percentage
-     * @param exchangeRates the effective Swap Token exchange rate at the time of unwindSwap
+     * @param swapRate the effective swap rate of the Swap Token at the time of unwindSwap
      */
-    event UnwindSwap(MarketId indexed id, address indexed buyer, uint256 raUsed, uint256 receivedReferenceAsset, uint256 receivedSwapToken, uint256 feePercentage, uint256 fee, uint256 exchangeRates);
+    event UnwindSwap(MarketId indexed id, address indexed buyer, uint256 raUsed, uint256 receivedReferenceAsset, uint256 receivedSwapToken, uint256 feePercentage, uint256 fee, uint256 swapRate);
 
     /// @notice Emitted when a unwindSwapFee is updated for a given Cork Pool
     /// @param id The Cork Pool id
@@ -44,9 +44,9 @@ interface IUnwindSwap is IErrors {
      * @return receivedSwapToken the amount of Swap Token received
      * @return feePercentage the fee in percentage
      * @return fee the fee charged
-     * @return exchangeRates the effective Swap Token exchange rate at the time of unwindSwap
+     * @return swapRate the effective swap rate of the Swap Token at the time of unwindSwap
      */
-    function unwindSwap(MarketId id, uint256 amount, address receiver) external returns (uint256 receivedReferenceAsset, uint256 receivedSwapToken, uint256 feePercentage, uint256 fee, uint256 exchangeRates);
+    function unwindSwap(MarketId id, uint256 amount, address receiver) external returns (uint256 receivedReferenceAsset, uint256 receivedSwapToken, uint256 feePercentage, uint256 fee, uint256 swapRate);
 
     /**
      * @notice return the amount of available Reference Asset and Swap Token to purchase.
@@ -57,11 +57,11 @@ interface IUnwindSwap is IErrors {
     function availableForUnwindSwap(MarketId id) external view returns (uint256 referenceAsset, uint256 swapToken);
 
     /**
-     * @notice returns the unwindSwap rates for a given Swap Token
+     * @notice returns the unwindSwap rate for a given Swap Token
      * @param id the id of Cork Pool
-     * @return rates the unwindSwap rates for a given Swap Token
+     * @return rate the unwindSwap rate for a given Swap Token
      */
-    function unwindSwapRates(MarketId id) external view returns (uint256 rates);
+    function unwindSwapRate(MarketId id) external view returns (uint256 rate);
 
     /**
      * @notice Returns the maximum amount of assets that could be transferred through `unwindSwap` and not cause a revert.

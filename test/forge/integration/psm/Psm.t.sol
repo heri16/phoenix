@@ -1,17 +1,17 @@
 pragma solidity ^0.8.30;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {Shares} from "contracts/core/assets/Shares.sol";
+import {PoolShare} from "contracts/core/assets/PoolShare.sol";
 
 import {IErrors} from "contracts/interfaces/IErrors.sol";
 import {Market, MarketId, MarketLibrary} from "contracts/libraries/Market.sol";
 import {TransferHelper} from "contracts/libraries/TransferHelper.sol";
 import {Helper} from "test/forge/Helper.sol";
-import {DummyWETH} from "test/forge/utils/dummy/DummyWETH.sol";
+import {ERC20Mock} from "test/mocks/ERC20Mock.sol";
 
 contract CorkPoolTest is Helper {
-    DummyWETH internal collateralAsset;
-    DummyWETH internal referenceAsset;
+    ERC20Mock internal collateralAsset;
+    ERC20Mock internal referenceAsset;
 
     uint256 public constant DEFAULT_DEPOSIT_AMOUNT = 10_000 ether;
     uint256 public constant EXPIRY = 1 days;
@@ -21,15 +21,15 @@ contract CorkPoolTest is Helper {
 
     uint256 depositAmount = 1 ether;
 
-    Shares internal swapToken;
-    Shares internal principalToken;
+    PoolShare internal swapToken;
+    PoolShare internal principalToken;
 
     struct PreviewUnwindSwapVars {
         uint256 receivedReferenceAsset;
         uint256 receivedSwapToken;
         uint256 feePercentage;
         uint256 fee;
-        uint256 exchangeRates;
+        uint256 swapRate;
     }
 
     struct PreviewswapVars {
@@ -76,8 +76,8 @@ contract CorkPoolTest is Helper {
         collateralAsset.approve(address(corkPool), type(uint256).max);
 
         (address _ct, address _swapToken) = corkPool.shares(defaultCurrencyId);
-        swapToken = Shares(_swapToken);
-        principalToken = Shares(_ct);
+        swapToken = PoolShare(_swapToken);
+        principalToken = PoolShare(_ct);
     }
 
     function setupDifferentDecimals(uint8 raDecimals, uint8 paDecimals) internal returns (uint8, uint8) {
@@ -88,8 +88,8 @@ contract CorkPoolTest is Helper {
         (collateralAsset, referenceAsset, defaultCurrencyId) = createMarket(EXPIRY, raDecimals, paDecimals);
 
         (address _ct, address _swapToken) = corkPool.shares(defaultCurrencyId);
-        swapToken = Shares(_swapToken);
-        principalToken = Shares(_ct);
+        swapToken = PoolShare(_swapToken);
+        principalToken = PoolShare(_ct);
 
         vm.deal(DEFAULT_ADDRESS, type(uint256).max);
         collateralAsset.deposit{value: type(uint256).max}();
@@ -152,18 +152,18 @@ contract CorkPoolTest is Helper {
         vm.assertEq(received, 1 ether);
     }
 
-    function testFuzz_exercise(uint8 raDecimals, uint8 paDecimals, uint256 rates) external {
+    function testFuzz_exercise(uint8 raDecimals, uint8 paDecimals, uint256 rate) external {
         (raDecimals, paDecimals) = setupDifferentDecimals(raDecimals, paDecimals);
-        rates = bound(rates, 0.9 ether, 1 ether);
+        rate = bound(rate, 0.9 ether, 1 ether);
 
-        corkConfig.updateCorkPoolRate(defaultCurrencyId, rates);
+        testOracle.setRate(defaultCurrencyId, rate);
         corkConfig.updateBaseRedemptionFeePercentage(defaultCurrencyId, 0);
 
         depositAmount = TransferHelper.normalizeDecimals(depositAmount, TARGET_DECIMALS, raDecimals);
 
         uint256 received = corkPool.deposit(defaultCurrencyId, depositAmount, currentCaller());
 
-        uint256 swapAmount = 1 ether * 1e18 / rates;
+        uint256 swapAmount = 1 ether * 1e18 / rate;
 
         swapAmount = TransferHelper.normalizeDecimals(swapAmount, TARGET_DECIMALS, paDecimals);
 
@@ -175,20 +175,20 @@ contract CorkPoolTest is Helper {
         vm.assertApproxEqAbs(received, expectedAmount, acceptableDelta);
     }
 
-    function testFuzz_swapPrincipalToken(uint8 raDecimals, uint8 paDecimals, uint256 rates) external {
+    function testFuzz_swapPrincipalToken(uint8 raDecimals, uint8 paDecimals, uint256 rate) external {
         (raDecimals, paDecimals) = setupDifferentDecimals(raDecimals, paDecimals);
 
-        rates = bound(rates, 0.9 ether, 1 ether);
+        rate = bound(rate, 0.9 ether, 1 ether);
 
         corkConfig.updateBaseRedemptionFeePercentage(defaultCurrencyId, 0);
-        corkConfig.updateCorkPoolRate(defaultCurrencyId, rates);
+        testOracle.setRate(defaultCurrencyId, rate);
 
         depositAmount = TransferHelper.normalizeDecimals(depositAmount, TARGET_DECIMALS, raDecimals);
 
         uint256 received = corkPool.deposit(defaultCurrencyId, depositAmount, currentCaller());
 
         // we swap half of the deposited amount
-        uint256 swapAmount = 0.5 ether * 1e18 / rates;
+        uint256 swapAmount = 0.5 ether * 1e18 / rate;
 
         swapAmount = TransferHelper.normalizeDecimals(swapAmount, TARGET_DECIMALS, paDecimals);
 
@@ -205,28 +205,28 @@ contract CorkPoolTest is Helper {
         vm.assertApproxEqAbs(received, expectedAmount, acceptableDelta);
     }
 
-    function testFuzz_unwindSwap(uint8 raDecimals, uint8 paDecimals, uint256 rates) external {
+    function testFuzz_unwindSwap(uint8 raDecimals, uint8 paDecimals, uint256 rate) external {
         (raDecimals, paDecimals) = setupDifferentDecimals(raDecimals, paDecimals);
 
-        rates = bound(rates, 0.9 ether, 1 ether);
+        rate = bound(rate, 0.9 ether, 1 ether);
 
         corkConfig.updateBaseRedemptionFeePercentage(defaultCurrencyId, 0);
         corkConfig.updateUnwindSwapFeeRate(defaultCurrencyId, 0);
-        corkConfig.updateCorkPoolRate(defaultCurrencyId, rates);
+        testOracle.setRate(defaultCurrencyId, rate);
 
         depositAmount = TransferHelper.normalizeDecimals(depositAmount, TARGET_DECIMALS, raDecimals);
 
         uint256 received = corkPool.deposit(defaultCurrencyId, depositAmount, currentCaller());
 
         // we swap half of the deposited amount
-        uint256 swapAmount = 0.5 ether * 1e18 / rates;
+        uint256 swapAmount = 0.5 ether * 1e18 / rate;
 
         swapAmount = TransferHelper.normalizeDecimals(swapAmount, TARGET_DECIMALS, paDecimals);
 
         (received,,) = corkPool.exercise(defaultCurrencyId, 0, swapAmount, DEFAULT_ADDRESS, 0, type(uint256).max);
 
         // and weunwindSwap half of the swaped amount
-        uint256 unwindSwapAmount = 0.25 ether * rates / 1 ether;
+        uint256 unwindSwapAmount = 0.25 ether * rate / 1 ether;
 
         uint256 adjustedunwindSwapAmount = TransferHelper.normalizeDecimals(unwindSwapAmount, TARGET_DECIMALS, raDecimals);
 
@@ -256,16 +256,16 @@ contract CorkPoolTest is Helper {
         IERC20(principalToken).approve(address(corkPool), type(uint256).max);
         IERC20(swapToken).approve(address(corkPool), type(uint256).max);
 
-        uint256 collateralAsset = corkPool.unwindMint(defaultCurrencyId, received);
+        uint256 collateralAsset = corkPool.unwindMint(defaultCurrencyId, received, address(DEFAULT_ADDRESS), address(DEFAULT_ADDRESS));
 
         uint256 acceptableDelta = TransferHelper.normalizeDecimals(1, TARGET_DECIMALS, raDecimals);
 
         vm.assertApproxEqAbs(collateralAsset, depositAmount, acceptableDelta);
     }
 
-    function test_exchangeRate() public {
-        uint256 rate = corkPool.exchangeRate(defaultCurrencyId);
-        vm.assertEq(rate, defaultExchangeRate(), "Exchange rate should match default");
+    function test_swapRate() public {
+        uint256 rate = corkPool.swapRate(defaultCurrencyId);
+        vm.assertEq(rate, defaultSwapRate(), "Swap rate should match default");
     }
 
     function test_availableForUnwindSwap() public {
@@ -282,12 +282,12 @@ contract CorkPoolTest is Helper {
         uint256 received = corkPool.deposit(defaultCurrencyId, 1 ether, currentCaller());
 
         (address _ct, address _swapToken) = corkPool.shares(defaultCurrencyId);
-        swapToken = Shares(_swapToken);
+        swapToken = PoolShare(_swapToken);
 
         swapToken.approve(address(corkPool), 20_000 ether);
         referenceAsset.approve(address(corkPool), 20_000 ether);
 
-        vm.expectRevert(abi.encodeWithSelector(IErrors.InsufficientLiquidity.selector, 1_000_000_000_000_000_000, 9_900_000_000_000_000_000_000));
+        vm.expectRevert(abi.encodeWithSelector(IErrors.InsufficientLiquidity.selector, 1 ether, 9900 ether));
         corkPool.exercise(defaultCurrencyId, 0, 10_000 ether, user2, 0, type(uint256).max);
         vm.stopPrank();
     }
@@ -307,10 +307,10 @@ contract CorkPoolTest is Helper {
         BalanceSnapshot memory beforeBalances = BalanceSnapshot({collateralAsset: collateralAsset.balanceOf(DEFAULT_ADDRESS), referenceAsset: referenceAsset.balanceOf(DEFAULT_ADDRESS), swapToken: swapToken.balanceOf(DEFAULT_ADDRESS), principalToken: principalToken.balanceOf(DEFAULT_ADDRESS)});
 
         PreviewUnwindSwapVars memory preview;
-        (preview.receivedReferenceAsset, preview.receivedSwapToken, preview.feePercentage, preview.fee, preview.exchangeRates) = corkPool.previewUnwindSwap(defaultCurrencyId, unwindSwapAmount);
+        (preview.receivedReferenceAsset, preview.receivedSwapToken, preview.feePercentage, preview.fee, preview.swapRate) = corkPool.previewUnwindSwap(defaultCurrencyId, unwindSwapAmount);
 
         PreviewUnwindSwapVars memory actual;
-        (actual.receivedReferenceAsset, actual.receivedSwapToken, actual.feePercentage, actual.fee, actual.exchangeRates) = corkPool.unwindSwap(defaultCurrencyId, unwindSwapAmount, DEFAULT_ADDRESS);
+        (actual.receivedReferenceAsset, actual.receivedSwapToken, actual.feePercentage, actual.fee, actual.swapRate) = corkPool.unwindSwap(defaultCurrencyId, unwindSwapAmount, DEFAULT_ADDRESS);
 
         BalanceSnapshot memory afterBalances = BalanceSnapshot({collateralAsset: collateralAsset.balanceOf(DEFAULT_ADDRESS), referenceAsset: referenceAsset.balanceOf(DEFAULT_ADDRESS), swapToken: swapToken.balanceOf(DEFAULT_ADDRESS), principalToken: principalToken.balanceOf(DEFAULT_ADDRESS)});
 
@@ -318,7 +318,7 @@ contract CorkPoolTest is Helper {
         assertEq(preview.receivedSwapToken, actual.receivedSwapToken);
         assertEq(preview.feePercentage, actual.feePercentage);
         assertEq(preview.fee, actual.fee);
-        assertEq(preview.exchangeRates, actual.exchangeRates);
+        assertEq(preview.swapRate, actual.swapRate);
 
         assertEq(beforeBalances.collateralAsset - afterBalances.collateralAsset, unwindSwapAmount);
         assertEq(afterBalances.referenceAsset - beforeBalances.referenceAsset, actual.receivedReferenceAsset);
@@ -336,11 +336,11 @@ contract CorkPoolTest is Helper {
 
         PreviewswapVars memory preview;
         (preview.collateralAsset, preview.swapToken, preview.fee) = corkPool.previewExercise(defaultCurrencyId, 0, swapAmount);
-        preview.rate = corkPool.exchangeRate(defaultCurrencyId);
+        preview.rate = corkPool.swapRate(defaultCurrencyId);
 
         PreviewswapVars memory actual;
         (actual.collateralAsset, actual.swapToken, actual.fee) = corkPool.exercise(defaultCurrencyId, 0, swapAmount, DEFAULT_ADDRESS, 0, type(uint256).max);
-        actual.rate = corkPool.exchangeRate(defaultCurrencyId);
+        actual.rate = corkPool.swapRate(defaultCurrencyId);
 
         BalanceSnapshot memory afterBalances = BalanceSnapshot({collateralAsset: collateralAsset.balanceOf(DEFAULT_ADDRESS), referenceAsset: referenceAsset.balanceOf(DEFAULT_ADDRESS), swapToken: swapToken.balanceOf(DEFAULT_ADDRESS), principalToken: principalToken.balanceOf(DEFAULT_ADDRESS)});
 
@@ -393,7 +393,7 @@ contract CorkPoolTest is Helper {
         vm.startPrank(DEFAULT_ADDRESS);
         collateralAsset.approve(address(corkPool), 1 ether);
 
-        (uint256 out, uint256 exchangeRate) = corkPool.mint(defaultCurrencyId, 1 ether, currentCaller());
+        uint256 out = corkPool.mint(defaultCurrencyId, 1 ether, currentCaller());
 
         vm.assertEq(out, 1 ether);
 
@@ -404,9 +404,9 @@ contract CorkPoolTest is Helper {
         (raDecimals, paDecimals) = setupDifferentDecimals(raDecimals, paDecimals);
         vm.resetGasMetering();
 
-        uint256 expectedInAmount = TransferHelper.fixedToTokenNativeDecimals(1 ether, address(collateralAsset));
+        uint256 expectedInAmount = TransferHelper.fixedToTokenNativeDecimals(1 ether, collateralAsset.decimals());
 
-        (uint256 inAmount,) = corkPool.mint(defaultCurrencyId, 1 ether, currentCaller());
+        uint256 inAmount = corkPool.mint(defaultCurrencyId, 1 ether, currentCaller());
 
         vm.assertEq(inAmount, expectedInAmount);
     }
@@ -415,7 +415,7 @@ contract CorkPoolTest is Helper {
         vm.startPrank(DEFAULT_ADDRESS);
         collateralAsset.approve(address(corkPool), 1 ether);
 
-        (uint256 out, uint256 exchangeRate) = corkPool.previewMint(defaultCurrencyId, 1 ether);
+        uint256 out = corkPool.previewMint(defaultCurrencyId, 1 ether);
 
         vm.assertEq(out, 1 ether);
 
@@ -426,9 +426,9 @@ contract CorkPoolTest is Helper {
         (raDecimals, paDecimals) = setupDifferentDecimals(raDecimals, paDecimals);
         vm.resetGasMetering();
 
-        uint256 expectedInAmount = TransferHelper.fixedToTokenNativeDecimals(1 ether, address(collateralAsset));
+        uint256 expectedInAmount = TransferHelper.fixedToTokenNativeDecimals(1 ether, collateralAsset.decimals());
 
-        (uint256 inAmount,) = corkPool.previewMint(defaultCurrencyId, 1 ether);
+        uint256 inAmount = corkPool.previewMint(defaultCurrencyId, 1 ether);
 
         vm.assertEq(inAmount, expectedInAmount);
     }
@@ -444,12 +444,12 @@ contract CorkPoolTest is Helper {
 
         uint256 collateralAssetBalanceBefore = collateralAsset.balanceOf(address(DEFAULT_ADDRESS));
 
-        uint256 swapTokenAndPrincipalTokenIn = corkPool.unwindDeposit(defaultCurrencyId, 1 ether);
+        uint256 cptAndCstSharesIn = corkPool.unwindDeposit(defaultCurrencyId, 1 ether, address(DEFAULT_ADDRESS), address(DEFAULT_ADDRESS));
 
         uint256 collateralAssetBalanceAfter = collateralAsset.balanceOf(address(DEFAULT_ADDRESS));
 
         vm.assertEq(collateralAssetBalanceAfter - collateralAssetBalanceBefore, 1 ether);
-        vm.assertEq(swapTokenAndPrincipalTokenIn, 1 ether);
+        vm.assertEq(cptAndCstSharesIn, 1 ether);
 
         vm.stopPrank();
     }
@@ -458,7 +458,7 @@ contract CorkPoolTest is Helper {
         vm.startPrank(DEFAULT_ADDRESS);
         collateralAsset.approve(address(corkPool), 100 ether);
 
-        uint256 normalizedDepositAmount = TransferHelper.fixedToTokenNativeDecimals(1 ether, address(collateralAsset));
+        uint256 normalizedDepositAmount = TransferHelper.fixedToTokenNativeDecimals(1 ether, collateralAsset.decimals());
 
         uint256 out = corkPool.deposit(defaultCurrencyId, normalizedDepositAmount, currentCaller());
 
@@ -467,12 +467,12 @@ contract CorkPoolTest is Helper {
 
         uint256 collateralAssetBalanceBefore = collateralAsset.balanceOf(address(DEFAULT_ADDRESS));
 
-        uint256 swapTokenAndPrincipalTokenIn = corkPool.unwindDeposit(defaultCurrencyId, normalizedDepositAmount);
+        uint256 cptAndCstSharesIn = corkPool.unwindDeposit(defaultCurrencyId, normalizedDepositAmount, address(DEFAULT_ADDRESS), address(DEFAULT_ADDRESS));
 
         uint256 collateralAssetBalanceAfter = collateralAsset.balanceOf(address(DEFAULT_ADDRESS));
 
         vm.assertEq(collateralAssetBalanceAfter - collateralAssetBalanceBefore, normalizedDepositAmount);
-        vm.assertEq(swapTokenAndPrincipalTokenIn, 1 ether);
+        vm.assertEq(cptAndCstSharesIn, 1 ether);
 
         vm.stopPrank();
     }
@@ -808,11 +808,11 @@ contract CorkPoolTest is Helper {
         corkPool.swap(defaultCurrencyId, 0.5 ether, DEFAULT_ADDRESS);
     }
 
-    function testFuzz_swap(uint8 raDecimals, uint8 paDecimals, uint256 rates) external {
+    function testFuzz_swap(uint8 raDecimals, uint8 paDecimals, uint256 rate) external {
         (raDecimals, paDecimals) = setupDifferentDecimals(raDecimals, paDecimals);
-        rates = bound(rates, 0.9 ether, 1 ether);
+        rate = bound(rate, 0.9 ether, 1 ether);
 
-        corkConfig.updateCorkPoolRate(defaultCurrencyId, rates);
+        testOracle.setRate(defaultCurrencyId, rate);
         corkConfig.updateBaseRedemptionFeePercentage(defaultCurrencyId, 0);
 
         depositAmount = TransferHelper.normalizeDecimals(depositAmount, TARGET_DECIMALS, raDecimals);
@@ -838,12 +838,12 @@ contract CorkPoolTest is Helper {
         assertGt(compensation, 0, "Should have locked some reference asset");
     }
 
-    function testFuzz_swapWithFees(uint8 raDecimals, uint8 paDecimals, uint256 rates, uint256 feePercentage) external {
+    function testFuzz_swapWithFees(uint8 raDecimals, uint8 paDecimals, uint256 rate, uint256 feePercentage) external {
         (raDecimals, paDecimals) = setupDifferentDecimals(raDecimals, paDecimals);
-        rates = bound(rates, 0.9 ether, 1 ether);
+        rate = bound(rate, 0.9 ether, 1 ether);
         feePercentage = bound(feePercentage, 1 ether, 5 ether); // 1-5% fee
 
-        corkConfig.updateCorkPoolRate(defaultCurrencyId, rates);
+        testOracle.setRate(defaultCurrencyId, rate);
         corkConfig.updateBaseRedemptionFeePercentage(defaultCurrencyId, feePercentage);
 
         depositAmount = TransferHelper.normalizeDecimals(depositAmount, TARGET_DECIMALS, raDecimals);
@@ -864,17 +864,17 @@ contract CorkPoolTest is Helper {
         // With fees, we should need more gross amount
         if (feePercentage > 0) {
             // The shares locked should be more than the desired assets due to fees
-            uint256 sharesInCollateralDecimals = TransferHelper.fixedToTokenNativeDecimals(shares, collateralAsset);
+            uint256 sharesInCollateralDecimals = TransferHelper.fixedToTokenNativeDecimals(shares, collateralAsset.decimals());
             assertGt(sharesInCollateralDecimals, desiredAssets, "Should lock more than desired due to fees");
         }
     }
 
-    function testFuzz_exerciseSharesMode(uint8 raDecimals, uint8 paDecimals, uint256 rates, uint256 feePercentage) external {
+    function testFuzz_exerciseSharesMode(uint8 raDecimals, uint8 paDecimals, uint256 rate, uint256 feePercentage) external {
         (raDecimals, paDecimals) = setupDifferentDecimals(raDecimals, paDecimals);
-        rates = bound(rates, 0.9 ether, 1 ether);
+        rate = bound(rate, 0.9 ether, 1 ether);
         feePercentage = bound(feePercentage, 1 ether, 5 ether); // 1-5% fee
 
-        corkConfig.updateCorkPoolRate(defaultCurrencyId, rates);
+        testOracle.setRate(defaultCurrencyId, rate);
         corkConfig.updateBaseRedemptionFeePercentage(defaultCurrencyId, feePercentage);
 
         depositAmount = TransferHelper.normalizeDecimals(depositAmount, TARGET_DECIMALS, raDecimals);
@@ -900,18 +900,46 @@ contract CorkPoolTest is Helper {
         assertGt(otherAssetSpent, 0, "Should spend reference assets");
 
         // The assets received should be roughly equal to shares (minus fees)
-        uint256 expectedAssetsBeforeFee = TransferHelper.fixedToTokenNativeDecimals(sharesToExercise, collateralAsset);
+        uint256 expectedAssetsBeforeFee = TransferHelper.fixedToTokenNativeDecimals(sharesToExercise, collateralAsset.decimals());
         uint256 acceptableDelta = TransferHelper.normalizeDecimals(1, TARGET_DECIMALS, raDecimals);
 
         if (feePercentage > 0) assertLt(assets, expectedAssetsBeforeFee, "Should receive less than gross amount due to fees");
     }
 
-    function testFuzz_exerciseCompensationMode(uint8 raDecimals, uint8 paDecimals, uint256 rates, uint256 feePercentage) external {
+    function testFuzz_exerciseSharesModeNoFee(uint8 raDecimals, uint8 paDecimals) external {
         (raDecimals, paDecimals) = setupDifferentDecimals(raDecimals, paDecimals);
-        rates = bound(rates, 0.9 ether, 1 ether);
+
+        depositAmount = TransferHelper.normalizeDecimals(depositAmount, TARGET_DECIMALS, raDecimals);
+        corkConfig.updateBaseRedemptionFeePercentage(defaultCurrencyId, 0);
+
+        // Deposit to create liquidity
+        uint256 received = corkPool.deposit(defaultCurrencyId, depositAmount, currentCaller());
+
+        // Use half of the CST shares for exercise
+        uint256 sharesToExercise = received / 2;
+
+        // Exercise in shares mode (shares > 0, compensation = 0)
+        (uint256 assets, uint256 otherAssetSpent, uint256 fee) = corkPool.exercise(
+            defaultCurrencyId,
+            sharesToExercise, // shares input
+            0, // compensation = 0 for shares mode
+            DEFAULT_ADDRESS, // receiver
+            0, // minAssetsOut
+            type(uint256).max // maxOtherAssetSpent
+        );
+
+        // Verify results
+        assertEq(fee, 0);
+        assertEq(assets, TransferHelper.normalizeDecimals(sharesToExercise, TARGET_DECIMALS, raDecimals), "Should receive collateral assets");
+        assertEq(otherAssetSpent, TransferHelper.normalizeDecimals(sharesToExercise, TARGET_DECIMALS, paDecimals), "Should receive collateral assets");
+    }
+
+    function testFuzz_exerciseCompensationMode(uint8 raDecimals, uint8 paDecimals, uint256 rate, uint256 feePercentage) external {
+        (raDecimals, paDecimals) = setupDifferentDecimals(raDecimals, paDecimals);
+        rate = bound(rate, 0.9 ether, 1 ether);
         feePercentage = bound(feePercentage, 1 ether, 5 ether); // 1-5% fee
 
-        corkConfig.updateCorkPoolRate(defaultCurrencyId, rates);
+        testOracle.setRate(defaultCurrencyId, rate);
         corkConfig.updateBaseRedemptionFeePercentage(defaultCurrencyId, feePercentage);
 
         depositAmount = TransferHelper.normalizeDecimals(depositAmount, TARGET_DECIMALS, raDecimals);
@@ -936,17 +964,17 @@ contract CorkPoolTest is Helper {
         assertGt(assets, 0, "Should receive collateral assets");
         assertGt(otherAssetSpent, 0, "Should spend CST tokens");
 
-        // The otherAssetSpent should be CST tokens calculated based on exchange rate
+        // The otherAssetSpent should be CST tokens calculated based on swap rate
         // assets should be roughly equal to the CST amount (converted to collateral decimals, minus fees)
         assertGt(assets, 0, "Should have received some collateral assets");
         assertGt(otherAssetSpent, 0, "Should have spent some CST tokens");
     }
 
-    function testFuzz_exerciseMaxExercise(uint8 raDecimals, uint8 paDecimals, uint256 rates) external {
+    function testFuzz_exerciseMaxExercise(uint8 raDecimals, uint8 paDecimals, uint256 rate) external {
         (raDecimals, paDecimals) = setupDifferentDecimals(raDecimals, paDecimals);
-        rates = bound(rates, 0.9 ether, 1 ether);
+        rate = bound(rate, 0.9 ether, 1 ether);
 
-        corkConfig.updateCorkPoolRate(defaultCurrencyId, rates);
+        testOracle.setRate(defaultCurrencyId, rate);
         corkConfig.updateBaseRedemptionFeePercentage(defaultCurrencyId, 0); // No fees for simpler testing
 
         depositAmount = TransferHelper.normalizeDecimals(depositAmount, TARGET_DECIMALS, raDecimals);
@@ -979,7 +1007,7 @@ contract CorkPoolTest is Helper {
         assertEq(swapToken.balanceOf(DEFAULT_ADDRESS), 0, "Should have no CST tokens left after max exercise");
     }
 
-    function defaultExchangeRate() internal pure override returns (uint256) {
+    function defaultSwapRate() internal pure returns (uint256) {
         return 1.0 ether;
     }
 }

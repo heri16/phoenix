@@ -2,21 +2,19 @@
 pragma solidity ^0.8.30;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-
 import {IErrors} from "contracts/interfaces/IErrors.sol";
 import {CollateralAssetManager, CollateralAssetManagerLibrary} from "contracts/libraries/CollateralAssetManager.sol";
 import {Test} from "forge-std/Test.sol";
 import {Helper} from "test/forge/Helper.sol";
-import {DummyWETH} from "test/forge/utils/dummy/DummyWETH.sol";
+import {DummyWETH, ERC20Mock} from "test/mocks/DummyWETH.sol";
 
 // Helper contract to expose CollateralAssetManagerLibrary functions for testing
 contract CollateralAssetManagerHelper {
     CollateralAssetManager public redemptionAssetManager;
 
-    function setCollateralAssetManager(address _address, uint256 locked, uint256 free) external {
+    function setCollateralAssetManager(address _address, uint256 locked) external {
         redemptionAssetManager._address = _address;
         redemptionAssetManager.locked = locked;
-        redemptionAssetManager.free = free;
     }
 
     // Exposed CollateralAssetManagerLibrary functions
@@ -64,15 +62,11 @@ contract CollateralAssetManagerHelper {
     function getLocked() external view returns (uint256) {
         return redemptionAssetManager.locked;
     }
-
-    function getFree() external view returns (uint256) {
-        return redemptionAssetManager.free;
-    }
 }
 
 contract CollateralAssetManagerTest is Helper {
     CollateralAssetManagerHelper internal ramHelper;
-    DummyWETH internal mockToken;
+    ERC20Mock internal mockToken;
 
     address internal user1;
     address internal user2;
@@ -94,7 +88,7 @@ contract CollateralAssetManagerTest is Helper {
         ramHelper = new CollateralAssetManagerHelper();
 
         // Initialize with mock token
-        ramHelper.setCollateralAssetManager(address(mockToken), 0, 0);
+        ramHelper.setCollateralAssetManager(address(mockToken), 0);
 
         // Give users some tokens
         vm.deal(user1, INITIAL_BALANCE);
@@ -123,7 +117,6 @@ contract CollateralAssetManagerTest is Helper {
 
         assertEq(manager._address, address(mockToken), "Address should be set correctly");
         assertEq(manager.locked, 0, "Locked should be zero initially");
-        assertEq(manager.free, 0, "Free should be zero initially");
     }
 
     function test_initialize_ShouldRevertWithZeroAddress() external {
@@ -136,22 +129,19 @@ contract CollateralAssetManagerTest is Helper {
 
         assertEq(manager._address, user1, "Should accept any address");
         assertEq(manager.locked, 0, "Locked should be zero initially");
-        assertEq(manager.free, 0, "Free should be zero initially");
     }
 
     // ------------------------------- reset Tests ----------------------------------- //
-    function test_reset_ShouldZeroOutBothLockedAndFree() external {
+    function test_reset_ShouldZeroOutLocked() external {
         // Set some values first
-        ramHelper.setCollateralAssetManager(address(mockToken), 100, 200);
+        ramHelper.setCollateralAssetManager(address(mockToken), 100);
         assertEq(mockToken.balanceOf(address(ramHelper)), 0, "Helper should have 0 amount as it was directly initialized");
 
         assertEq(ramHelper.getLocked(), 100, "Locked should be set");
-        assertEq(ramHelper.getFree(), 200, "Free should be set");
 
         ramHelper.reset();
 
         assertEq(ramHelper.getLocked(), 0, "Locked should be reset to zero");
-        assertEq(ramHelper.getFree(), 0, "Free should be reset to zero");
         assertEq(ramHelper.getAddress(), address(mockToken), "Address should remain unchanged");
 
         assertEq(mockToken.balanceOf(address(ramHelper)), 0, "Helper should have 0 amount as it was directly initialized");
@@ -160,22 +150,19 @@ contract CollateralAssetManagerTest is Helper {
     function test_reset_ShouldWorkWhenAlreadyZero() external {
         // Already at zero values
         assertEq(ramHelper.getLocked(), 0, "Locked should be zero");
-        assertEq(ramHelper.getFree(), 0, "Free should be zero");
 
         ramHelper.reset();
 
         assertEq(ramHelper.getLocked(), 0, "Locked should remain zero");
-        assertEq(ramHelper.getFree(), 0, "Free should remain zero");
     }
 
     function test_reset_ShouldWorkWithMaxValues() external {
         uint256 maxValue = type(uint256).max;
-        ramHelper.setCollateralAssetManager(address(mockToken), maxValue, maxValue);
+        ramHelper.setCollateralAssetManager(address(mockToken), maxValue);
 
         ramHelper.reset();
 
         assertEq(ramHelper.getLocked(), 0, "Locked should be reset from max value");
-        assertEq(ramHelper.getFree(), 0, "Free should be reset from max value");
     }
 
     // ------------------------------- increaseLocked Tests ----------------------------------- //
@@ -185,7 +172,6 @@ contract CollateralAssetManagerTest is Helper {
         ramHelper.increaseLocked(LOCK_AMOUNT);
 
         assertEq(ramHelper.getLocked(), initialLocked + LOCK_AMOUNT, "Locked should increase by amount");
-        assertEq(ramHelper.getFree(), 0, "Free should remain unchanged");
     }
 
     function test_increaseLocked_ShouldWorkWithZeroAmount() external {
@@ -219,7 +205,6 @@ contract CollateralAssetManagerTest is Helper {
         ramHelper.decreaseLocked(SMALL_AMOUNT);
 
         assertEq(ramHelper.getLocked(), LOCK_AMOUNT - SMALL_AMOUNT, "Locked should decrease by amount");
-        assertEq(ramHelper.getFree(), 0, "Free should remain unchanged");
     }
 
     function test_decreaseLocked_ShouldWorkWithZeroAmount() external {
@@ -253,47 +238,33 @@ contract CollateralAssetManagerTest is Helper {
         uint256 result = ramHelper.convertAllToFree();
 
         assertEq(ramHelper.getLocked(), 0, "Locked should become zero");
-        assertEq(ramHelper.getFree(), LOCK_AMOUNT, "Free should equal previous locked amount");
         assertEq(result, LOCK_AMOUNT, "Should return new free amount");
     }
 
     function test_convertAllToFree_ShouldReturnExistingFree_WhenNoLocked() external {
-        ramHelper.setCollateralAssetManager(address(mockToken), 0, 50);
+        ramHelper.setCollateralAssetManager(address(mockToken), 0);
 
         uint256 result = ramHelper.convertAllToFree();
 
         assertEq(ramHelper.getLocked(), 0, "Locked should remain zero");
-        assertEq(ramHelper.getFree(), 50, "Free should remain unchanged");
-        assertEq(result, 50, "Should return existing free amount");
-    }
-
-    function test_convertAllToFree_ShouldAddToExistingFree() external {
-        ramHelper.setCollateralAssetManager(address(mockToken), LOCK_AMOUNT, 50);
-
-        uint256 result = ramHelper.convertAllToFree();
-
-        assertEq(ramHelper.getLocked(), 0, "Locked should become zero");
-        assertEq(ramHelper.getFree(), LOCK_AMOUNT + 50, "Free should be sum of previous locked and free");
-        assertEq(result, LOCK_AMOUNT + 50, "Should return total free amount");
+        assertEq(result, 0, "Should return existing free amount");
     }
 
     function test_convertAllToFree_ShouldWorkWhenBothAreZero() external {
         uint256 result = ramHelper.convertAllToFree();
 
         assertEq(ramHelper.getLocked(), 0, "Locked should remain zero");
-        assertEq(ramHelper.getFree(), 0, "Free should remain zero");
         assertEq(result, 0, "Should return zero");
     }
 
     function test_convertAllToFree_ShouldHandleLargeNumbers() external {
         uint256 largeAmount = type(uint128).max;
-        ramHelper.setCollateralAssetManager(address(mockToken), largeAmount, largeAmount);
+        ramHelper.setCollateralAssetManager(address(mockToken), largeAmount);
 
         uint256 result = ramHelper.convertAllToFree();
 
         assertEq(ramHelper.getLocked(), 0, "Locked should become zero");
-        assertEq(ramHelper.getFree(), largeAmount * 2, "Free should be sum of both large amounts");
-        assertEq(result, largeAmount * 2, "Should return total");
+        assertEq(result, largeAmount, "Should return total");
     }
 
     // ------------------------------- lockFrom Tests ----------------------------------- //
@@ -420,18 +391,15 @@ contract CollateralAssetManagerTest is Helper {
         // 1. Lock tokens from user1
         ramHelper.lockFrom(LOCK_AMOUNT, user1);
         assertEq(ramHelper.getLocked(), LOCK_AMOUNT, "Should have locked amount");
-        assertEq(ramHelper.getFree(), 0, "Free should still be zero");
 
         // 2. Convert locked to free
         uint256 freeAmount = ramHelper.convertAllToFree();
         assertEq(ramHelper.getLocked(), 0, "Locked should be zero after conversion");
-        assertEq(ramHelper.getFree(), LOCK_AMOUNT, "Free should equal previous locked");
         assertEq(freeAmount, LOCK_AMOUNT, "Return value should match");
 
         // 3. Lock more tokens (this time they go to locked, not free)
         ramHelper.lockFrom(SMALL_AMOUNT, user1);
         assertEq(ramHelper.getLocked(), SMALL_AMOUNT, "Should have new locked amount");
-        assertEq(ramHelper.getFree(), LOCK_AMOUNT, "Free should remain unchanged");
 
         // 4. Unlock some tokens to user3
         ramHelper.unlockTo(user3, SMALL_AMOUNT);
@@ -466,13 +434,11 @@ contract CollateralAssetManagerTest is Helper {
         ramHelper.lockFrom(SMALL_AMOUNT, user2);
 
         assertEq(ramHelper.getLocked(), SMALL_AMOUNT, "Should have some locked");
-        assertEq(ramHelper.getFree(), LOCK_AMOUNT, "Should have some free");
 
         // Reset should zero everything
         ramHelper.reset();
 
         assertEq(ramHelper.getLocked(), 0, "Locked should be reset");
-        assertEq(ramHelper.getFree(), 0, "Free should be reset");
         // Note: Tokens remain in the contract, only accounting is reset
     }
 
@@ -481,7 +447,6 @@ contract CollateralAssetManagerTest is Helper {
     function test_HelperSetup() external view {
         assertEq(ramHelper.getAddress(), address(mockToken), "Helper should be set up with mock token");
         assertEq(ramHelper.getLocked(), 0, "Initial locked should be zero");
-        assertEq(ramHelper.getFree(), 0, "Initial free should be zero");
     }
 
     function test_TokenSetup() external view {

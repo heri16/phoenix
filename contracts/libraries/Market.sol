@@ -9,14 +9,22 @@ type MarketId is bytes32;
  * @dev represent a Collateral Asset/Reference Asset pair
  */
 struct Market {
-    // referenceAsset/principalToken
-    address referenceAsset;
-    // collateralAsset/swapToken
+    // collateralAsset
     address collateralAsset;
+    // referenceAsset
+    address referenceAsset;
     // expiry in unix epoch timestamp in seconds
     uint256 expiryTimestamp;
-    // IExchangeRateProvider contract address
-    address exchangeRateProvider;
+    // lower limit of rate
+    uint256 rateMin;
+    // upper limit of rate
+    uint256 rateMax;
+    // maximum rate change allowance per day
+    uint256 rateChangePerDayMax;
+    // maximum accumulated rate change allowance for burst
+    uint256 rateChangeCapacityMax;
+    // IRateOracle contract address
+    address rateOracle;
 }
 
 /**
@@ -29,13 +37,13 @@ library MarketLibrary {
         id = MarketId.wrap(keccak256(abi.encode(marketKey)));
     }
 
-    function initialize(address referenceAsset, address collateralAsset, uint256 expiry, address exchangeRateProvider) internal pure returns (Market memory marketKey) {
-        if (referenceAsset == address(0) || collateralAsset == address(0)) revert IErrors.ZeroAddress();
-        if (referenceAsset == collateralAsset) revert IErrors.InvalidAddress();
-        if (expiry == 0) revert IErrors.InvalidExpiry();
-        if (exchangeRateProvider == address(0)) revert IErrors.ZeroAddress();
+    function initialize(address referenceAsset, address collateralAsset, uint256 expiryTimestamp, address rateOracle, uint256 rateMin, uint256 rateMax, uint256 rateChangePerDayMax, uint256 rateChangeCapacityMax) internal view returns (Market memory marketParams) {
+        require(referenceAsset != address(0) && collateralAsset != address(0), IErrors.ZeroAddress());
+        require(referenceAsset != collateralAsset, IErrors.InvalidAddress());
+        require(expiryTimestamp > block.timestamp, IErrors.InvalidExpiry());
+        require(rateOracle != address(0), IErrors.ZeroAddress());
 
-        marketKey = Market(referenceAsset, collateralAsset, expiry, exchangeRateProvider);
+        marketParams = Market({collateralAsset: collateralAsset, referenceAsset: referenceAsset, expiryTimestamp: expiryTimestamp, rateMin: rateMin, rateMax: rateMax, rateChangePerDayMax: rateChangePerDayMax, rateChangeCapacityMax: rateChangeCapacityMax, rateOracle: rateOracle});
     }
 
     function underlyingAsset(Market memory market) internal pure returns (address collateralAsset, address referenceAsset) {

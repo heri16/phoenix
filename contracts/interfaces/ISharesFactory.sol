@@ -2,6 +2,7 @@
 pragma solidity ^0.8.30;
 
 import "contracts/interfaces/IErrors.sol";
+import {Market, MarketId} from "contracts/libraries/Market.sol";
 
 /**
  * @title ISharesFactory Interface
@@ -28,23 +29,17 @@ interface ISharesFactory is IErrors {
 
     /**
      * @notice for getting list of deployed SwapShares with this factory
-     * @param collateralAsset Address of Collateral Asset
-     * @param referenceAsset Address of Reference Asset
-     * @param expiryTimestamp expiry interval
-     * @param exchangeRateProvider address of exchange rate provider
+     * @param poolId id of the pool
      * @return principalToken deployed Principal Token shares
      * @return swapToken deployed Swap Token shares
      */
-    function getDeployedSwapShares(address collateralAsset, address referenceAsset, uint256 expiryTimestamp, address exchangeRateProvider) external view returns (address principalToken, address swapToken);
+    function poolShares(MarketId poolId) external view returns (address principalToken, address swapToken);
 
     struct DeployParams {
-        address _collateralAsset;
-        address _referenceAsset;
-        address _owner;
-        uint256 expiryTimestamp;
-        address exchangeRateProvider;
-        uint256 exchangeRate;
+        Market poolParams;
+        address owner;
+        uint256 swapRate;
     }
 
-    function deploySwapShares(DeployParams calldata params) external returns (address principalToken, address swapToken);
+    function deployPoolShares(DeployParams calldata params) external returns (address principalToken, address swapToken);
 }

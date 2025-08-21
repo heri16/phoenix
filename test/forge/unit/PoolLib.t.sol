@@ -2,9 +2,9 @@
 pragma solidity ^0.8.30;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {ERC20Burnable, Shares} from "contracts/core/assets/Shares.sol";
+import {ERC20Burnable, PoolShare} from "contracts/core/assets/PoolShare.sol";
 import {IErrors} from "contracts/interfaces/IErrors.sol";
-import {IExchangeRateProvider} from "contracts/interfaces/IExchangeRateProvider.sol";
+import {IRateOracle} from "contracts/interfaces/IRateOracle.sol";
 import {CollateralAssetManager, CollateralAssetManagerLibrary} from "contracts/libraries/CollateralAssetManager.sol";
 import {Guard} from "contracts/libraries/Guard.sol";
 import {Market, MarketId, MarketLibrary} from "contracts/libraries/Market.sol";
@@ -14,7 +14,7 @@ import {Balances, CorkPoolPoolArchive, PoolState, State} from "contracts/librari
 import {SwapToken, SwapTokenLibrary} from "contracts/libraries/SwapToken.sol";
 import {TransferHelper} from "contracts/libraries/TransferHelper.sol";
 import {Helper} from "test/forge/Helper.sol";
-import {DummyWETH} from "test/forge/utils/dummy/DummyWETH.sol";
+import {DummyWETH, ERC20Mock} from "test/mocks/DummyWETH.sol";
 
 contract PoolLibraryTestHelper {
     using PoolLibrary for State;
@@ -22,153 +22,178 @@ contract PoolLibraryTestHelper {
     using SwapTokenLibrary for SwapToken;
     using CollateralAssetManagerLibrary for CollateralAssetManager;
 
+    struct ExerciseParams {
+        address sender;
+        address owner;
+        address receiver;
+        uint256 shares;
+        uint256 compensation;
+        uint256 minAssetsOut;
+        uint256 maxOtherAssetSpent;
+        address treasury;
+    }
+
+    address public adapter;
+
+    constructor(address _adapter) {
+        adapter = _adapter;
+    }
+
     mapping(MarketId => State) public states;
 
+    // TODO tmp fix
+    Market market_;
+
     // Expose external library functions for testing
-    function isInitialized(MarketId id) external view returns (bool) {
-        return states[id].isInitialized();
+    function isInitialized(MarketId poolId) external view returns (bool) {
+        return states[poolId].isInitialized();
     }
 
-    function initialize(MarketId id, Market calldata market) external {
-        states[id].initialize(market);
+    function initialize(MarketId poolId, Market calldata market) external {
+        market_ = market;
+        states[poolId].initialize(market, adapter);
     }
 
-    function deposit(MarketId id, address depositor, address receiver, uint256 amount) external returns (uint256 received, uint256 exchangeRate) {
-        return states[id].deposit(depositor, receiver, amount);
+    function deposit(MarketId poolId, address depositor, address receiver, uint256 amount) external returns (uint256 received) {
+        return states[poolId].deposit(amount, depositor, receiver);
     }
 
-    function unwindMint(MarketId id, address owner, uint256 swapTokenAndPrincipalTokenIn) external returns (uint256 collateralAsset) {
-        return states[id].unwindMint(owner, swapTokenAndPrincipalTokenIn);
+    function unwindMint(MarketId poolId, address owner, address receiver, uint256 cptAndCstSharesIn) external returns (uint256 collateralAsset) {
+        return states[poolId].unwindMint(owner, receiver, cptAndCstSharesIn);
     }
 
-    function availableForUnwindSwap(MarketId id) external view returns (uint256 referenceAsset, uint256 swapToken) {
-        return states[id].availableForUnwindSwap();
+    function availableForUnwindSwap(MarketId poolId) external view returns (uint256 referenceAsset, uint256 swapToken) {
+        return states[poolId].availableForUnwindSwap();
     }
 
-    function unwindSwapRates(MarketId id) external view returns (uint256 rates) {
-        return states[id].unwindSwapRates();
+    function unwindSwapRate(MarketId poolId) external view returns (uint256 rate) {
+        return states[poolId].unwindSwapRate(adapter);
     }
 
-    function unwindSwapFeePercentage(MarketId id) external view returns (uint256 rates) {
-        return states[id].unwindSwapFeePercentage();
+    function market(MarketId poolId) external view returns (Market memory _market) {
+        _market = market_;
     }
 
-    function updateUnwindSwapFeePercentage(MarketId id, uint256 newFees) external {
-        states[id].updateUnwindSwapFeePercentage(newFees);
+    function unwindSwapFeePercentage(MarketId poolId) external view returns (uint256 rate) {
+        return states[poolId].unwindSwapFeePercentage();
     }
 
-    function unwindSwap(MarketId id, address buyer, address receiver, uint256 amount, address treasury) external returns (uint256 receivedReferenceAsset, uint256 receivedSwapToken, uint256 feePercentage, uint256 fee, uint256 exchangeRates) {
-        return states[id].unwindSwap(buyer, receiver, amount, treasury);
+    function updateUnwindSwapFeePercentage(MarketId poolId, uint256 newFees) external {
+        states[poolId].updateUnwindSwapFeePercentage(newFees);
     }
 
-    function valueLocked(MarketId id, bool collateralAsset) external view returns (uint256) {
-        return states[id].valueLocked(collateralAsset);
+    function unwindSwap(MarketId poolId, address buyer, address receiver, uint256 amount, address treasury) external returns (uint256 receivedReferenceAsset, uint256 receivedSwapToken, uint256 feePercentage, uint256 fee, uint256 swapRate) {
+        return states[poolId].unwindSwap(amount, buyer, receiver, treasury, adapter);
     }
 
-    function exchangeRate(MarketId id) external view returns (uint256 rates) {
-        return states[id].exchangeRate();
+    function valueLocked(MarketId poolId, bool collateralAsset) external view returns (uint256) {
+        return states[poolId].valueLocked(collateralAsset);
     }
 
-    function exercise(MarketId id, address sender, address owner, address receiver, uint256 shares, uint256 compensation, uint256 minAssetsOut, uint256 maxOtherAssetSpent, address treasury) external returns (uint256 assets, uint256 otherAssetSpent, uint256 fee) {
-        return states[id].exercise(sender, owner, receiver, shares, compensation, minAssetsOut, maxOtherAssetSpent, treasury);
+    function swapRate(MarketId poolId) external view returns (uint256 rate) {
+        return states[poolId].swapRate(adapter);
     }
 
-    function previewExercise(MarketId id, uint256 shares, uint256 compensation) external view returns (uint256 assets, uint256 otherAssetSpent, uint256 fee) {
-        return states[id].previewExercise(shares, compensation);
+    function exercise(MarketId poolId, address sender, address owner, address receiver, uint256 shares, uint256 compensation, uint256 minAssetsOut, uint256 maxOtherAssetSpent, address treasury) external returns (uint256 assets, uint256 otherAssetSpent, uint256 fee) {
+        ExerciseParams memory params = ExerciseParams({sender: sender, owner: owner, receiver: receiver, shares: shares, compensation: compensation, minAssetsOut: minAssetsOut, maxOtherAssetSpent: maxOtherAssetSpent, treasury: treasury});
+        return states[poolId].exercise(params.shares, params.compensation, params.receiver, params.minAssetsOut, params.maxOtherAssetSpent, params.sender, params.owner, params.treasury, adapter);
     }
 
-    function nextExpiry(MarketId id) external view returns (uint256 expiry) {
-        return states[id].nextExpiry();
+    function previewExercise(MarketId poolId, uint256 shares, uint256 compensation) external view returns (uint256 assets, uint256 otherAssetSpent, uint256 fee) {
+        return states[poolId].previewExercise(shares, compensation, adapter);
     }
 
-    function redeem(MarketId id, address sender, address owner, address receiver, uint256 amount) external returns (uint256 accruedReferenceAsset, uint256 accruedCollateralAsset) {
-        return states[id].redeem(sender, owner, receiver, amount);
+    function nextExpiry(MarketId poolId) external view returns (uint256 expiry) {
+        return states[poolId].nextExpiry();
     }
 
-    function updateBaseRedemptionFeePercentage(MarketId id, uint256 newFees) external {
-        states[id].updateBaseRedemptionFeePercentage(newFees);
+    function redeem(MarketId poolId, address sender, address owner, address receiver, uint256 amount) external returns (uint256 accruedReferenceAsset, uint256 accruedCollateralAsset) {
+        return states[poolId].redeem(amount, sender, owner, receiver);
     }
 
-    function previewUnwindSwap(MarketId id, uint256 amount) external view returns (uint256 receivedReferenceAsset, uint256 receivedSwapToken, uint256 feePercentage, uint256 fee, uint256 exchangeRates) {
-        (receivedReferenceAsset, receivedSwapToken, feePercentage, fee, exchangeRates,) = states[id].previewUnwindSwap(amount);
+    function updateBaseRedemptionFeePercentage(MarketId poolId, uint256 newFees) external {
+        states[poolId].updateBaseRedemptionFeePercentage(newFees);
     }
 
-    function previewSwap(MarketId id, uint256 amount) external view returns (uint256 collateralAsset, uint256 swapToken, uint256 fee, uint256 exchangeRates) {
-        return states[id].previewSwap(amount);
+    function previewUnwindSwap(MarketId poolId, uint256 amount) external view returns (uint256 receivedReferenceAsset, uint256 receivedSwapToken, uint256 feePercentage, uint256 fee, uint256 swapRate) {
+        (receivedReferenceAsset, receivedSwapToken, feePercentage, fee, swapRate,) = states[poolId].previewUnwindSwap(amount, adapter);
     }
 
-    function previewRedeem(MarketId id, uint256 amount) external view returns (uint256 accruedReferenceAsset, uint256 accruedCollateralAsset) {
-        return states[id].previewRedeem(amount);
+    function previewSwap(MarketId poolId, uint256 assets, address constraintAdapter) external view returns (uint256 sharesOut, uint256 compensation) {
+        (sharesOut, compensation,) = states[poolId].previewSwap(assets, adapter);
     }
 
-    function previewWithdraw(MarketId id, uint256 collateralAssetOut, uint256 referenceAssetOut) external view returns (uint256 sharesIn, uint256 actualReferenceAssetOut) {
-        return states[id].previewWithdraw(collateralAssetOut, referenceAssetOut);
+    function previewRedeem(MarketId poolId, uint256 amount) external view returns (uint256 accruedReferenceAsset, uint256 accruedCollateralAsset) {
+        return states[poolId].previewRedeem(amount);
     }
 
-    function withdraw(MarketId id, address sender, address owner, address receiver, uint256 collateralAssetOut, uint256 referenceAssetOut) external returns (uint256 sharesIn, uint256 actualReferenceAssetOut) {
-        return states[id].withdraw(sender, owner, receiver, collateralAssetOut, referenceAssetOut);
+    function previewWithdraw(MarketId poolId, uint256 collateralAssetOut, uint256 referenceAssetOut) external view returns (uint256 sharesIn, uint256 actualReferenceAssetOut) {
+        return states[poolId].previewWithdraw(collateralAssetOut, referenceAssetOut);
     }
 
-    function maxExercise(MarketId id, address owner) external view returns (uint256 shares) {
-        return states[id].maxExercise(owner);
+    function withdraw(MarketId poolId, address sender, address owner, address receiver, uint256 collateralAssetOut, uint256 referenceAssetOut) external returns (uint256 sharesIn, uint256 actualCollateralAssetOut, uint256 actualReferenceAssetOut) {
+        return states[poolId].withdraw(collateralAssetOut, referenceAssetOut, sender, owner, receiver);
     }
 
-    function swap(MarketId id, address sender, address owner, address receiver, uint256 assets) external returns (uint256 shares, uint256 compensation) {
-        return states[id].swap(sender, owner, receiver, assets);
+    function maxExercise(MarketId poolId, address owner) external view returns (uint256 shares) {
+        return states[poolId].maxExercise(owner);
     }
 
-    function previewUnwindExercise(MarketId id, uint256 shares) external view returns (uint256 assetIn, uint256 compensationOut) {
-        return states[id].previewUnwindExercise(shares);
+    function swap(MarketId poolId, address sender, address owner, address receiver, uint256 assets, address treasury) external returns (uint256 shares, uint256 compensation) {
+        return states[poolId].swap(assets, sender, owner, receiver, treasury, adapter);
     }
 
-    function maxUnwindExercise(MarketId id, address owner) external view returns (uint256 shares) {
-        return states[id].maxUnwindExercise(owner);
+    function previewUnwindExercise(MarketId poolId, uint256 shares, address constraintAdapter) external view returns (uint256 assetIn, uint256 compensationOut) {
+        (uint256 assetIn, uint256 compensationOut,) = states[poolId].previewUnwindExercise(shares, adapter);
     }
 
-    function unwindExercise(MarketId id, address sender, address receiver, uint256 shares, uint256 minCompensationOut, uint256 maxAssetIn) external returns (uint256 assetIn, uint256 compensationOut) {
-        return states[id].unwindExercise(sender, receiver, shares, minCompensationOut, maxAssetIn);
+    function maxUnwindExercise(MarketId poolId, address owner) external view returns (uint256 shares) {
+        return states[poolId].maxUnwindExercise(owner, adapter);
+    }
+
+    function unwindExercise(MarketId poolId, address sender, address receiver, uint256 shares, uint256 minCompensationOut, uint256 maxAssetIn, address treasury, address constraintAdapter) external returns (uint256 assetIn, uint256 compensationOut) {
+        return states[poolId].unwindExercise(shares, receiver, minCompensationOut, maxAssetIn, sender, treasury, adapter);
     }
 
     // Helper functions for testing
-    function getState(MarketId id) external view returns (State memory) {
-        return states[id];
+    function getState(MarketId poolId) external view returns (State memory) {
+        return states[poolId];
     }
 
-    function setState(MarketId id, State memory state) external {
-        states[id] = state;
+    function setState(MarketId poolId, State memory state) external {
+        states[poolId] = state;
     }
 
-    function setSwapToken(MarketId id, address swapTokenAddress, address principalToken) external {
-        states[id].swapToken._address = swapTokenAddress;
-        states[id].swapToken.principalToken = principalToken;
+    function setSwapToken(MarketId poolId, address swapTokenAddress, address principalToken) external {
+        states[poolId].swapToken._address = swapTokenAddress;
+        states[poolId].swapToken.principalToken = principalToken;
     }
 
-    function setBalances(MarketId id, uint256 refBalance, uint256 swapBalance, uint256 lockedCollateral) external {
-        states[id].pool.balances.referenceAssetBalance = refBalance;
-        states[id].pool.balances.swapTokenBalance = swapBalance;
-        states[id].pool.balances.collateralAsset.locked = lockedCollateral;
+    function setBalances(MarketId poolId, uint256 refBalance, uint256 swapBalance, uint256 lockedCollateral) external {
+        states[poolId].pool.balances.referenceAssetBalance = refBalance;
+        states[poolId].pool.balances.swapTokenBalance = swapBalance;
+        states[poolId].pool.balances.collateralAsset.locked = lockedCollateral;
     }
 
-    function setFees(MarketId id, uint256 baseRedemptionFee, uint256 unwindSwapFee) external {
-        states[id].pool.baseRedemptionFeePercentage = baseRedemptionFee;
-        states[id].pool.unwindSwapFeePercentage = unwindSwapFee;
+    function setFees(MarketId poolId, uint256 baseRedemptionFee, uint256 unwindSwapFee) external {
+        states[poolId].pool.baseRedemptionFeePercentage = baseRedemptionFee;
+        states[poolId].pool.unwindSwapFeePercentage = unwindSwapFee;
     }
 
-    function setLiquiditySeparated(MarketId id, bool separated) external {
-        states[id].pool.liquiditySeparated = separated;
+    function setLiquiditySeparated(MarketId poolId, bool separated) external {
+        states[poolId].pool.liquiditySeparated = separated;
     }
 
-    function setArchive(MarketId id, uint256 refAccrued, uint256 collateralAccrued, uint256 principalAttributed) external {
-        states[id].pool.poolArchive.referenceAssetAccrued = refAccrued;
-        states[id].pool.poolArchive.collateralAssetAccrued = collateralAccrued;
-        states[id].pool.poolArchive.principalTokenAttributed = principalAttributed;
+    function setArchive(MarketId poolId, uint256 refAccrued, uint256 collateralAccrued, uint256 principalAttributed) external {
+        states[poolId].pool.poolArchive.referenceAssetAccrued = refAccrued;
+        states[poolId].pool.poolArchive.collateralAssetAccrued = collateralAccrued;
     }
 }
 
 contract PoolLibTest is Helper {
     PoolLibraryTestHelper private poolLibHelper;
-    DummyWETH private collateralAsset;
-    DummyWETH private referenceAsset;
+    ERC20Mock private collateralAsset;
+    ERC20Mock private referenceAsset;
     MarketId private marketId;
     address private user;
     address private user2;
@@ -202,10 +227,14 @@ contract PoolLibTest is Helper {
         collateralAsset.deposit{value: type(uint128).max}();
         referenceAsset.deposit{value: type(uint128).max}();
 
-        poolLibHelper = new PoolLibraryTestHelper();
+        poolLibHelper = new PoolLibraryTestHelper(address(constraintAdapter));
+
+        // inject correct pool address
+        bytes32 value = bytes32(uint256(uint160(address(poolLibHelper))));
+        vm.store(address(constraintAdapter), bytes32(0x850a01c36e696ae1195ad02907192131a1808c20fd305f275554f8ccd5afa800), value);
 
         // Setup basic market
-        Market memory market = MarketLibrary.initialize(address(referenceAsset), address(collateralAsset), block.timestamp + 1 days, address(corkConfig.defaultExchangeRateProvider()));
+        Market memory market = MarketLibrary.initialize(address(referenceAsset), address(collateralAsset), block.timestamp + 1 days, address(testOracle), 0.9 ether, 1.1 ether, 0.001 ether, 0.001 ether);
         poolLibHelper.initialize(marketId, market);
 
         // Get the actual swap token addresses from the real CorkPool for proper testing
@@ -217,6 +246,11 @@ contract PoolLibTest is Helper {
         poolLibHelper.setLiquiditySeparated(marketId, false);
         poolLibHelper.setArchive(marketId, 0, 0, 0);
         poolLibHelper.setBalances(marketId, 1000 ether, 1000 ether, 1000 ether);
+    }
+
+    function injectCorkPool() internal {
+        bytes32 value = bytes32(uint256(uint160(address(corkPool))));
+        vm.store(address(constraintAdapter), 0x850a01c36e696ae1195ad02907192131a1808c20fd305f275554f8ccd5afa800, value);
     }
 
     // ================================ Initialization Tests ================================ //
@@ -238,7 +272,7 @@ contract PoolLibTest is Helper {
         assertEq(state.info.collateralAsset, address(0), "Collateral asset should zero initially");
         assertEq(state.info.expiryTimestamp, 0, "Expiry should zero initially");
 
-        Market memory market = MarketLibrary.initialize(address(referenceAsset), address(collateralAsset), block.timestamp + 2 days, address(corkConfig.defaultExchangeRateProvider()));
+        Market memory market = MarketLibrary.initialize(address(referenceAsset), address(collateralAsset), block.timestamp + 2 days, address(testOracle), 0.9 ether, 1.1 ether, 0.001 ether, 0.001 ether);
         poolLibHelper.initialize(newId, market);
 
         state = poolLibHelper.getState(newId);
@@ -300,8 +334,8 @@ contract PoolLibTest is Helper {
         uint256 depositAmount = 1000 ether;
 
         (address _ct, address _swapToken) = corkPool.shares(marketId);
-        Shares swapToken = Shares(_swapToken);
-        Shares principalToken = Shares(_ct);
+        PoolShare swapToken = PoolShare(_swapToken);
+        PoolShare principalToken = PoolShare(_ct);
 
         vm.startPrank(user);
         collateralAsset.approve(address(corkPool), depositAmount);
@@ -316,21 +350,21 @@ contract PoolLibTest is Helper {
     // ================================ UnwindMint Tests ================================ //
 
     function test_unwindMint_ShouldRevert_WhenAmountIsZero() external {
-        vm.expectRevert(abi.encodeWithSignature("ZeroDeposit()"));
-        poolLibHelper.unwindMint(marketId, user, 0);
+        vm.expectRevert(abi.encodeWithSignature("InvalidAmount()"));
+        poolLibHelper.unwindMint(marketId, user, user, 0);
     }
 
     function test_unwindMint_ShouldRevert_WhenExpired() external {
         vm.warp(block.timestamp + 2 days);
 
         vm.expectRevert(abi.encodeWithSignature("Expired()"));
-        corkPool.unwindMint(marketId, 1000 ether);
+        corkPool.unwindMint(marketId, 1000 ether, user, user);
     }
 
     // ================================ UnwindSwap Tests ================================ //
 
     function test_unwindSwap_ShouldRevert_WhenAmountIsZero() external {
-        vm.expectRevert(abi.encodeWithSignature("ZeroDeposit()"));
+        vm.expectRevert(abi.encodeWithSignature("InvalidAmount()"));
         poolLibHelper.unwindSwap(marketId, user, user, 0, treasury);
     }
 
@@ -368,7 +402,7 @@ contract PoolLibTest is Helper {
     // ================================ Redeem Tests ================================ //
 
     function test_previewRedeem_ShouldRevert_WhenAmountIsZero() external {
-        vm.expectRevert(abi.encodeWithSignature("ZeroDeposit()"));
+        vm.expectRevert(abi.encodeWithSignature("InvalidAmount()"));
         poolLibHelper.previewRedeem(marketId, 0);
     }
 
@@ -397,14 +431,14 @@ contract PoolLibTest is Helper {
     function test_previewWithdraw_ShouldRevert_WhenBothAssetsAreZero() external {
         vm.warp(block.timestamp + 2 days);
 
-        vm.expectRevert(abi.encodeWithSignature("ZeroDeposit()"));
+        vm.expectRevert(abi.encodeWithSignature("InvalidAmount()"));
         poolLibHelper.previewWithdraw(marketId, 0, 0);
     }
 
     function test_previewWithdraw_ShouldRevert_WhenBothAssetsAreNonZero() external {
         vm.warp(block.timestamp + 2 days);
 
-        vm.expectRevert(abi.encodeWithSignature("ZeroDeposit()"));
+        vm.expectRevert(abi.encodeWithSignature("InvalidAmount()"));
         poolLibHelper.previewWithdraw(marketId, 1000 ether, 500 ether);
     }
 
@@ -435,16 +469,6 @@ contract PoolLibTest is Helper {
 
         uint256 totalValue = poolLibHelper.valueLocked(marketId, false);
         assertEq(totalValue, balance + accruedAmount, "Should return sum of balance and accrued reference asset");
-    }
-
-    // ================================ Exchange Rate Tests ================================ //
-
-    function test_exchangeRate_ShouldReturnValidRate() external {
-        uint256 rate = poolLibHelper.exchangeRate(marketId);
-        assertEq(rate, 0, "Exchange rate should be 0 here");
-
-        rate = corkPool.exchangeRate(marketId);
-        assertGt(rate, 0, "Exchange rate should be greater than 0 here");
     }
 
     // ================================ Max Functions Tests ================================ //
@@ -480,15 +504,17 @@ contract PoolLibTest is Helper {
     // ================================ Preview UnwindExercise Tests ================================ //
 
     function test_previewUnwindExercise_ShouldRevert_WhenSharesIsZero() external {
-        vm.expectRevert(abi.encodeWithSignature("ZeroDeposit()"));
-        poolLibHelper.previewUnwindExercise(marketId, 0);
+        address constraintAdapter = poolLibHelper.adapter();
+        vm.expectRevert(abi.encodeWithSignature("InvalidAmount()"));
+        poolLibHelper.previewUnwindExercise(marketId, 0, constraintAdapter);
     }
 
     function test_previewUnwindExercise_ShouldRevert_WhenExpired() external {
+        address constraintAdapter = poolLibHelper.adapter();
         vm.warp(block.timestamp + 2 days);
 
         vm.expectRevert(abi.encodeWithSignature("Expired()"));
-        poolLibHelper.previewUnwindExercise(marketId, 1000 ether);
+        poolLibHelper.previewUnwindExercise(marketId, 1000 ether, constraintAdapter);
     }
 
     // ================================ Next Expiry Tests ================================ //
@@ -553,37 +579,37 @@ contract PoolLibTest is Helper {
     // ================================ Edge Cases ================================ //
 
     function test_isInitialized_ShouldHandleMultipleMarkets() external {
-        MarketId id1 = MarketId.wrap(bytes32(uint256(1)));
-        MarketId id2 = MarketId.wrap(bytes32(uint256(2)));
+        MarketId poolId1 = MarketId.wrap(bytes32(uint256(1)));
+        MarketId poolId2 = MarketId.wrap(bytes32(uint256(2)));
 
         // Only initialize first market
-        Market memory market = MarketLibrary.initialize(address(referenceAsset), address(collateralAsset), block.timestamp + 1 days, address(corkConfig.defaultExchangeRateProvider()));
-        poolLibHelper.initialize(id1, market);
+        Market memory market = MarketLibrary.initialize(address(referenceAsset), address(collateralAsset), block.timestamp + 1 days, address(testOracle), 0.9 ether, 1.1 ether, 0.001 ether, 0.001 ether);
+        poolLibHelper.initialize(poolId1, market);
 
-        assertTrue(poolLibHelper.isInitialized(id1), "First market should be initialized");
-        assertFalse(poolLibHelper.isInitialized(id2), "Second market should not be initialized");
+        assertTrue(poolLibHelper.isInitialized(poolId1), "First market should be initialized");
+        assertFalse(poolLibHelper.isInitialized(poolId2), "Second market should not be initialized");
     }
 
     function test_fees_ShouldWorkIndependentlyForDifferentMarkets() external {
-        MarketId id1 = MarketId.wrap(bytes32(uint256(1)));
-        MarketId id2 = MarketId.wrap(bytes32(uint256(2)));
+        MarketId poolId1 = MarketId.wrap(bytes32(uint256(1)));
+        MarketId poolId2 = MarketId.wrap(bytes32(uint256(2)));
 
         // Initialize both markets
-        Market memory market = MarketLibrary.initialize(address(referenceAsset), address(collateralAsset), block.timestamp + 1 days, address(corkConfig.defaultExchangeRateProvider()));
-        poolLibHelper.initialize(id1, market);
-        poolLibHelper.initialize(id2, market);
+        Market memory market = MarketLibrary.initialize(address(referenceAsset), address(collateralAsset), block.timestamp + 1 days, address(testOracle), 0.9 ether, 1.1 ether, 0.001 ether, 0.001 ether);
+        poolLibHelper.initialize(poolId1, market);
+        poolLibHelper.initialize(poolId2, market);
 
         // Set different fees
-        poolLibHelper.updateUnwindSwapFeePercentage(id1, 1 ether);
-        poolLibHelper.updateUnwindSwapFeePercentage(id2, 2 ether);
+        poolLibHelper.updateUnwindSwapFeePercentage(poolId1, 1 ether);
+        poolLibHelper.updateUnwindSwapFeePercentage(poolId2, 2 ether);
 
-        assertEq(poolLibHelper.unwindSwapFeePercentage(id1), 1 ether, "First market fee should be 1%");
-        assertEq(poolLibHelper.unwindSwapFeePercentage(id2), 2 ether, "Second market fee should be 2%");
+        assertEq(poolLibHelper.unwindSwapFeePercentage(poolId1), 1 ether, "First market fee should be 1%");
+        assertEq(poolLibHelper.unwindSwapFeePercentage(poolId2), 2 ether, "Second market fee should be 2%");
     }
 
     function test_initialize_ShouldSetCollateralAssetManager() external {
         MarketId newId = MarketId.wrap(bytes32(uint256(456)));
-        Market memory market = MarketLibrary.initialize(address(referenceAsset), address(collateralAsset), block.timestamp + 1 days, address(corkConfig.defaultExchangeRateProvider()));
+        Market memory market = MarketLibrary.initialize(address(referenceAsset), address(collateralAsset), block.timestamp + 1 days, address(testOracle), 0.9 ether, 1.1 ether, 0.001 ether, 0.001 ether);
 
         poolLibHelper.initialize(newId, market);
 
@@ -594,18 +620,19 @@ contract PoolLibTest is Helper {
     // ================================ Swap Function Tests ================================ //
 
     function test_swap_ShouldRevert_WhenAmountIsZero() external {
-        vm.expectRevert(abi.encodeWithSignature("ZeroDeposit()"));
-        poolLibHelper.swap(marketId, user, user, user, 0);
+        vm.expectRevert(abi.encodeWithSignature("InvalidAmount()"));
+        poolLibHelper.swap(marketId, user, user, user, 0, treasury);
     }
 
     function test_swap_ShouldRevert_WhenExpired() external {
         vm.warp(block.timestamp + 2 days);
 
         vm.expectRevert(abi.encodeWithSignature("Expired()"));
-        poolLibHelper.swap(marketId, user, user, user, 1000 ether);
+        poolLibHelper.swap(marketId, user, user, user, 1000 ether, treasury);
     }
 
     function test_swap_ShouldReturnCorrectAmounts() external {
+        injectCorkPool();
         uint256 assetAmount = 100 ether;
 
         // Use CorkPool for realistic testing
@@ -614,7 +641,7 @@ contract PoolLibTest is Helper {
         corkPool.deposit(marketId, 1000 ether, currentCaller()); // Get some CST first
 
         (address principalToken, address swapTokenAddr) = corkPool.shares(marketId);
-        Shares swapToken = Shares(swapTokenAddr);
+        PoolShare swapToken = PoolShare(swapTokenAddr);
 
         // Approve tokens for swap
         swapToken.approve(address(corkPool), type(uint256).max);
@@ -628,31 +655,37 @@ contract PoolLibTest is Helper {
     }
 
     function test_previewSwap_ShouldReturnCorrectAmounts() external {
-        uint256 referenceAmount = 100 ether;
+        injectCorkPool();
+        uint256 assets = 100 ether;
 
-        (uint256 collateralAsset, uint256 swapToken, uint256 fee, uint256 exchangeRates) = corkPool.previewSwap(marketId, referenceAmount);
+        (uint256 sharesOut, uint256 compensation) = corkPool.previewSwap(marketId, assets);
 
-        assertGt(collateralAsset, 0, "Should calculate collateral amount");
-        assertGt(swapToken, 0, "Should calculate swap token amount");
-        assertGt(exchangeRates, 0, "Should have exchange rate");
-        // Fee might be 0 if no base redemption fee is set
+        assertGt(sharesOut, 0, "Should calculate CST shares needed");
+        assertGt(compensation, 0, "Should calculate reference asset compensation needed");
+        // Shares should be greater than assets due to fees
+        assertGe(sharesOut, TransferHelper.tokenNativeDecimalsToFixed(assets, collateralAsset.decimals()), "Shares should include fees");
     }
 
     function test_previewSwap_ShouldRevert_WhenExpired() external {
         vm.warp(block.timestamp + 2 days);
 
+        address constraintAdapter = poolLibHelper.adapter();
         vm.expectRevert(abi.encodeWithSignature("Expired()"));
-        poolLibHelper.previewSwap(marketId, 1000 ether);
+        poolLibHelper.previewSwap(marketId, 1000 ether, constraintAdapter);
     }
 
     // ================================ Unwind Exercise Tests ================================ //
 
     function test_unwindExercise_ShouldRevert_WhenZeroShares() external {
-        vm.expectRevert(abi.encodeWithSignature("ZeroDeposit()"));
+        injectCorkPool();
+
+        vm.expectRevert(abi.encodeWithSignature("InvalidAmount()"));
         corkPool.unwindExercise(marketId, 0, user, 0, type(uint256).max);
     }
 
     function test_unwindExercise_ShouldRevert_WhenExpired() external {
+        injectCorkPool();
+
         vm.warp(block.timestamp + 2 days);
 
         vm.expectRevert(abi.encodeWithSignature("Expired()"));
@@ -660,6 +693,7 @@ contract PoolLibTest is Helper {
     }
 
     function test_unwindExercise_ShouldWorkCorrectly() external {
+        injectCorkPool();
         // First setup some state with deposits and balance
         vm.startPrank(user);
         collateralAsset.approve(address(corkPool), 2000 ether);
@@ -710,7 +744,7 @@ contract PoolLibTest is Helper {
 
         // Test withdraw using CorkPool
         uint256 collateralOut = 100 ether;
-        (uint256 sharesIn, uint256 actualRefOut) = corkPool.withdraw(marketId, collateralOut, 0, user, user);
+        (uint256 sharesIn, uint256 actualCollateralOut, uint256 actualRefOut) = corkPool.withdraw(marketId, collateralOut, 0, user, user);
         vm.stopPrank();
 
         assertGt(sharesIn, 0, "Should require shares input");
@@ -742,24 +776,25 @@ contract PoolLibTest is Helper {
         corkPool.deposit(marketId, depositAmount, currentCaller());
 
         (address principalToken, address swapTokenAddr) = corkPool.shares(marketId);
-        Shares(principalToken).approve(address(corkPool), type(uint256).max);
-        Shares(swapTokenAddr).approve(address(corkPool), type(uint256).max);
+        PoolShare(principalToken).approve(address(corkPool), type(uint256).max);
+        PoolShare(swapTokenAddr).approve(address(corkPool), type(uint256).max);
 
         uint256 unwindAmount = 100 ether;
-        uint256 collateralReceived = corkPool.unwindMint(marketId, unwindAmount);
+        uint256 collateralReceived = corkPool.unwindMint(marketId, unwindAmount, user, user);
         vm.stopPrank();
 
         assertEq(collateralReceived, unwindAmount, "Should receive equal collateral amount");
     }
 
     function test_exercise_RealIntegration() external {
+        injectCorkPool();
         // Setup: deposit to get CST tokens
         vm.startPrank(user);
         collateralAsset.approve(address(corkPool), 1000 ether);
         corkPool.deposit(marketId, 1000 ether, currentCaller());
 
         (address principalToken, address swapTokenAddr) = corkPool.shares(marketId);
-        Shares(swapTokenAddr).approve(address(corkPool), type(uint256).max);
+        PoolShare(swapTokenAddr).approve(address(corkPool), type(uint256).max);
         referenceAsset.approve(address(corkPool), type(uint256).max);
 
         // Exercise with shares mode
@@ -772,6 +807,8 @@ contract PoolLibTest is Helper {
     }
 
     function test_unwindSwap_RealIntegration() external {
+        injectCorkPool();
+
         // Setup: create some liquidity first
         vm.startPrank(user);
         collateralAsset.approve(address(corkPool), 2000 ether);
@@ -783,28 +820,15 @@ contract PoolLibTest is Helper {
 
         // Now test unwind swap
         uint256 unwindAmount = 50 ether;
-        (uint256 receivedRef, uint256 receivedSwap, uint256 feePercentage, uint256 fee, uint256 exchangeRates) = corkPool.unwindSwap(marketId, unwindAmount, user);
+        (uint256 receivedRef, uint256 receivedSwap, uint256 feePercentage, uint256 fee, uint256 swapRate) = corkPool.unwindSwap(marketId, unwindAmount, user);
         vm.stopPrank();
 
         assertGt(receivedRef, 0, "Should receive reference asset");
         assertGt(receivedSwap, 0, "Should receive swap tokens");
-        assertGt(exchangeRates, 0, "Should have exchange rate");
+        assertGt(swapRate, 0, "Should have swap rate");
     }
 
     // ================================ Preview Function Tests ================================ //
-
-    // TODO: fix this
-    // function test_previewUnwindSwap_ShouldCalculateCorrectly() external {
-    //     // Setup some balances first
-    //     poolLibHelper.setBalances(marketId, 1000 ether, 1000 ether, 2000 ether);
-
-    //     uint256 amount = 100 ether;
-    //     (uint256 receivedRef, uint256 receivedSwap, uint256 feePercentage, uint256 fee, uint256 exchangeRates) = poolLibHelper.previewUnwindSwap(marketId, amount);
-
-    //     assertGt(receivedRef, 0, "Should calculate reference asset");
-    //     assertGt(receivedSwap, 0, "Should calculate swap tokens");
-    //     assertGt(exchangeRates, 0, "Should have exchange rate");
-    // }
 
     function test_previewUnwindSwap_ShouldRevert_WhenExpired() external {
         vm.warp(block.timestamp + 2 days);
@@ -812,12 +836,6 @@ contract PoolLibTest is Helper {
         vm.expectRevert(abi.encodeWithSignature("Expired()"));
         poolLibHelper.previewUnwindSwap(marketId, 100 ether);
     }
-
-    // TODO: fix this
-    // function test_previewUnwindSwap_ShouldRevert_WhenZeroAmount() external {
-    //     vm.expectRevert(abi.encodeWithSignature("ZeroDeposit()"));
-    //     poolLibHelper.previewUnwindSwap(marketId, 0);
-    // }
 
     // ================================ Liquidity Separation Tests ================================ //
 
@@ -843,6 +861,7 @@ contract PoolLibTest is Helper {
     // ================================ Complex Integration Tests ================================ //
 
     function test_fullLifecycle_DepositSwapExerciseRedeem() external {
+        injectCorkPool();
         vm.startPrank(user);
 
         // 1. Deposit
@@ -855,7 +874,7 @@ contract PoolLibTest is Helper {
 
         // 3. Exercise
         (address principalToken, address swapTokenAddr) = corkPool.shares(marketId);
-        Shares(swapTokenAddr).approve(address(corkPool), type(uint256).max);
+        PoolShare(swapTokenAddr).approve(address(corkPool), type(uint256).max);
         (uint256 exerciseAssets, uint256 exerciseOtherSpent, uint256 exerciseFee) = corkPool.exercise(marketId, 100 ether, 0, user, 0, type(uint256).max);
 
         // 4. Fast forward to expiry
@@ -915,7 +934,7 @@ contract PoolLibTest is Helper {
         corkPool.deposit(marketId, 100 ether, currentCaller()); // Small deposit
 
         (address principalToken, address swapTokenAddr) = corkPool.shares(marketId);
-        Shares(swapTokenAddr).approve(address(corkPool), type(uint256).max);
+        PoolShare(swapTokenAddr).approve(address(corkPool), type(uint256).max);
         referenceAsset.approve(address(corkPool), type(uint256).max);
 
         // Try to exercise more than available
@@ -937,15 +956,16 @@ contract PoolLibTest is Helper {
 
     // ================================ Edge Case Tests ================================ //
 
-    function test_exchangeRate_ShouldBeConsistent() external {
-        uint256 rate1 = corkPool.exchangeRate(marketId);
+    function test_swapRate_ShouldBeConsistent() external {
+        injectCorkPool();
+        uint256 rate1 = corkPool.swapRate(marketId);
 
         // Rate should be consistent across calls
-        uint256 rate2 = corkPool.exchangeRate(marketId);
-        assertEq(rate1, rate2, "Exchange rate should be consistent");
+        uint256 rate2 = corkPool.swapRate(marketId);
+        assertEq(rate1, rate2, "Swap rate should be consistent");
 
         // Should be greater than 0
-        assertGt(rate1, 0, "Exchange rate should be positive");
+        assertGt(rate1, 0, "Swap rate should be positive");
     }
 
     function test_expiry_ShouldReturnCorrectValue() external {
@@ -988,6 +1008,7 @@ contract PoolLibTest is Helper {
     // ================================ State Consistency Tests ================================ //
 
     function test_stateConsistency_AfterMultipleOperations() external {
+        injectCorkPool();
         vm.startPrank(user);
         collateralAsset.approve(address(corkPool), 5000 ether);
         referenceAsset.approve(address(corkPool), 5000 ether);
@@ -1021,7 +1042,7 @@ contract PoolLibTest is Helper {
         corkPool.deposit(marketId, 1000 ether, currentCaller());
 
         (address principalToken, address swapToken) = corkPool.shares(marketId);
-        Shares(swapToken).approve(address(corkPool), type(uint256).max);
+        PoolShare(swapToken).approve(address(corkPool), type(uint256).max);
 
         uint256 exerciseShares = 100 ether;
         uint256 unreasonableMinAssetsOut = 1_000_000 ether; // Way too high
@@ -1039,7 +1060,7 @@ contract PoolLibTest is Helper {
         corkPool.deposit(marketId, 1000 ether, currentCaller());
 
         (address principalToken, address swapToken) = corkPool.shares(marketId);
-        Shares(swapToken).approve(address(corkPool), type(uint256).max);
+        PoolShare(swapToken).approve(address(corkPool), type(uint256).max);
 
         uint256 exerciseShares = 100 ether;
         uint256 unreasonableMaxOtherAsset = 1; // Way too low
@@ -1050,6 +1071,7 @@ contract PoolLibTest is Helper {
     }
 
     function test_unwindSwap_ShouldRevert_WhenInsufficientSwapTokens() external {
+        injectCorkPool();
         // receivedSwapToken > self.pool.balances.swapTokenBalance
         vm.startPrank(user);
         collateralAsset.approve(address(corkPool), 1000 ether);
@@ -1088,6 +1110,7 @@ contract PoolLibTest is Helper {
     }
 
     function test_withdraw_ShouldRevert_WhenInsufficientReferenceAccrued() external {
+        injectCorkPool();
         // referenceAssetOut > archive.referenceAssetAccrued
         vm.startPrank(user);
         collateralAsset.approve(address(corkPool), 1000 ether);
@@ -1104,6 +1127,8 @@ contract PoolLibTest is Helper {
     }
 
     function test_withdraw_ShouldTestReferenceAssetAssert() external {
+        injectCorkPool();
+
         // assert when referenceAssetOut != 0
         vm.startPrank(user);
         collateralAsset.approve(address(corkPool), 1000 ether);
@@ -1127,7 +1152,7 @@ contract PoolLibTest is Helper {
         // Use a smaller amount that should work with the pool's current state
         uint256 referenceOut = 50 ether;
 
-        try corkPool.withdraw(marketId, 0, referenceOut, user, user) returns (uint256 sharesIn, uint256 actualRefOut) {
+        try corkPool.withdraw(marketId, 0, referenceOut, user, user) returns (uint256 sharesIn, uint256 actualCollateralOut, uint256 actualRefOut) {
             assertGt(sharesIn, 0, "Should burn some shares");
             assertGt(actualRefOut, 0, "Should return reference assets");
         } catch {
@@ -1137,6 +1162,7 @@ contract PoolLibTest is Helper {
     }
 
     function test_unwindExercise_ShouldRevert_WhenInsufficientSwapTokenBalance() external {
+        injectCorkPool();
         // shares > self.pool.balances.swapTokenBalance
         vm.startPrank(user);
         collateralAsset.approve(address(corkPool), 1000 ether);
@@ -1163,6 +1189,7 @@ contract PoolLibTest is Helper {
     }
 
     function test_calcWithdrawAmount_ReferenceAssetBranch() external {
+        injectCorkPool();
         // Test when referenceAssetOutFixed > 0 (else branch)
         vm.startPrank(user);
         collateralAsset.approve(address(corkPool), 1000 ether);

@@ -3,14 +3,14 @@ pragma solidity ^0.8.30;
 
 import {IUnwindSwap} from "contracts/interfaces/IUnwindSwap.sol";
 import {Initialize} from "contracts/interfaces/Initialize.sol";
-import {MarketId} from "contracts/libraries/Market.sol";
+import "contracts/libraries/Market.sol";
 
 /**
- * @title IPool Interface
+ * @title IPoolManager Interface
  * @author Cork Team
- * @notice IPool interface for CorkPool contract
+ * @notice IPoolManager interface for CorkPool contract
  */
-interface IPool is IUnwindSwap, Initialize {
+interface IPoolManager is IUnwindSwap, Initialize {
     enum OperationType {
         DEPOSIT,
         UNWIND_SWAP,
@@ -19,41 +19,28 @@ interface IPool is IUnwindSwap, Initialize {
         PREMATURE_WITHDRAWAL
     }
 
-    /// @notice Breaks compatibility with ERC4626. Emitted by Pool Manager address
-    /// @param marketId The Cork Pool id
-    /// @param sender msg.sender
-    /// @param owner receiver of shares
-    /// @param assets collateral amount added
-    /// @param shares amount of CPT or CST minted
-    event Deposit(MarketId indexed marketId, address indexed sender, address indexed owner, uint256 assets, uint256 shares);
+    /// @param poolId The Cork Pool id
+    /// @param sender The sender address
+    /// @param owner The receiver of shares
+    /// @param amount0 The collateral asset amount
+    /// @param amount1 The reference asset amount
+    /// @param isRemove The assets removed or added (false when added, true when removed)
+    event PoolModifyLiquidity(MarketId indexed poolId, address indexed sender, address indexed owner, uint256 amount0, uint256 amount1, bool isRemove);
 
     /// @notice Emitted when a user swaps a Swap Token for a given Cork Pool
-    /// @param id The Cork Pool id
-    /// @param swaper The address of the swaper
-    /// @param paUsed The amount of the Reference Asset swaped
-    /// @param swapTokenUsed The amount of Swap Token swaped
-    /// @param raReceived The amount of  asset received
-    /// @param dsExchangeRate The exchange rate of Swap Token at the time of swap
-    /// @param feePercentage The fee percentage charged for redemption
-    /// @param fee The fee charged for redemption
-    event Swap(MarketId indexed id, address indexed swaper, uint256 paUsed, uint256 swapTokenUsed, uint256 raReceived, uint256 dsExchangeRate, uint256 feePercentage, uint256 fee);
-
-    /// @notice Breaks compatibility with ERC4626. Emitted by Pool Manager address
-    /// @notice Purpose: Provides comprehensive withdrawal tracking with market context for protocol-level monitoring and analytics
-    /// @notice Indexers must be able to easily distinguish withdrawals from swaps
-    /// @param marketId The Cork Pool id
-    /// @param sender msg.sender with allowance
-    /// @param owner owner of shares
-    /// @param assets0 collateral amount removed from pool
-    /// @param assets1 zero
-    /// @param shares0 amount of CPT burned (non-zero)
-    /// @param shares1 amount of CST burned (non-zero)
-    event WithdrawExtended(MarketId indexed marketId, address indexed sender, address indexed owner, uint256 assets0, uint256 assets1, uint256 shares0, uint256 shares1);
+    /// @param poolId The Cork Pool id
+    /// @param sender The address of the sender
+    /// @param owner The address of the owner
+    /// @param amount0 The amount of the collateral asset removed after fees
+    /// @param amount1 The amount of the reference asset added after fees
+    /// @param feeAmount The amount of the fee sent to treasury
+    /// @param isUnwind Whether the swap is a repurchase (true if unwind or false when swap)
+    event PoolSwap(MarketId indexed poolId, address indexed sender, address indexed owner, uint256 amount0, uint256 amount1, uint256 feeAmount, bool isUnwind);
 
     /// @notice Emmitted when baseRedemptionFeePercentage is updated
-    /// @param id the Cork Pool id
+    /// @param poolId the Cork Pool id
     /// @param baseRedemptionFeePercentage the new baseRedemptionFeePercentage
-    event BaseRedemptionFeePercentageUpdated(MarketId indexed id, uint256 indexed baseRedemptionFeePercentage);
+    event BaseRedemptionFeePercentageUpdated(MarketId indexed poolId, uint256 indexed baseRedemptionFeePercentage);
 
     /// @notice emitted when deposit is paused
     event DepositPaused(MarketId indexed marketId);
@@ -85,22 +72,28 @@ interface IPool is IUnwindSwap, Initialize {
     /// @notice emitted when premature withdrawal is unpaused
     event ReturnUnpaused(MarketId indexed marketId);
 
+    /// @notice thrown when mint amount is invalid, e.g trying to mint 100 CPT/100 CST but only capable of minting 50 CPT/50 CST
+    error InvalidMintAmount(uint256 expected, uint256 actual);
+
+    /// @notice thrown when unwind deposit amount is invalid, e.g trying to unwind deposit 100 CPT/100 CST but only capable of unwinding 50 CPT/50 CST
+    error InvalidUnwindDepositAmount(uint256 expected, uint256 actual);
+
     /**
      * @notice Deposits collateral asset and returns the amount of Principal Token and Swap Token tokens after deposit
-     * @param id the id of Cork Pool
-     * @param collateralAmountIn the amount of collateral to deposit
+     * @param poolId the id of Cork Pool
+     * @param collateralAssetAmountIn the amount of collateral to deposit
      * @param receiver the address that will receive the Principal Token and Swap Token
      * @return received the amount of Principal Token/Swap Token received
      */
-    function deposit(MarketId id, uint256 collateralAmountIn, address receiver) external returns (uint256 received);
+    function deposit(MarketId poolId, uint256 collateralAssetAmountIn, address receiver) external returns (uint256 received);
 
     /**
      * This determines the rate of how much the user will receive for the amount of asset they want to deposit.
      * for example, if the rate is 1.5, then the user will need to deposit 1.5 token to get 1 Principal Token and Swap Token.
-     * @param id the id of the Cork Pool
-     * @return rates the exchange rate of Principal Token and Swap Token
+     * @param poolId the id of the Cork Pool
+     * @return rate the swap rate of the Swap Token
      */
-    function exchangeRate(MarketId id) external view returns (uint256 rates);
+    function swapRate(MarketId poolId) external view returns (uint256 rate);
 
     /**
      * @notice Exercise function that locks up CST shares or compensation in reference token
@@ -136,11 +129,11 @@ interface IPool is IUnwindSwap, Initialize {
      * @param shares The amount of CST shares to unlock
      * @param receiver The address that will receive the unlocked tokens
      * @param minCompensationOut The minimum amount of reference token compensation that must be unlocked
-     * @param maxAssetIn The maximum amount of collateral assets that can be deposited
+     * @param maxAssetsIn The maximum amount of collateral assets that can be deposited
      * @return assetIn The amount of collateral assets deposited
      * @return compensationOut The amount of reference token compensation unlocked
      */
-    function unwindExercise(MarketId poolId, uint256 shares, address receiver, uint256 minCompensationOut, uint256 maxAssetIn) external returns (uint256 assetIn, uint256 compensationOut);
+    function unwindExercise(MarketId poolId, uint256 shares, address receiver, uint256 minCompensationOut, uint256 maxAssetsIn) external returns (uint256 assetIn, uint256 compensationOut);
 
     /**
      * @notice Previews the outcome of unwinding an exercise operation
@@ -163,37 +156,39 @@ interface IPool is IUnwindSwap, Initialize {
 
     /**
      * @notice swap Collateral Asset + Reference Asset with Principal Token at expiry
-     * @param id The pair id
+     * @param poolId The pair id
      * @param amount The amount of Principal Token to swap
      * @param owner The address that owns the Principal Token
      * @param receiver The address that will receive the assets
      * @return accruedReferenceAsset Amount of reference asset received
      * @return accruedCollateralAsset Amount of collateral asset received
      */
-    function redeem(MarketId id, uint256 amount, address owner, address receiver) external returns (uint256 accruedReferenceAsset, uint256 accruedCollateralAsset);
+    function redeem(MarketId poolId, uint256 amount, address owner, address receiver) external returns (uint256 accruedReferenceAsset, uint256 accruedCollateralAsset);
 
     /**
      * @notice  returns amount of collateralAsset user will get when swap Collateral Asset with Principal Token+Swap Token
-     * @param id The Cork Pool id
-     * @param collateralAmountOut amount of collateral to get out
-     * @return swapTokenAndPrincipalTokenIn amount of swap token and principal token user spends
+     * @param poolId The Cork Pool id
+     * @param collateralAssetAmountOut amount of collateral to get out
+     * @param owner The address that owns the Principal Token and Swap Token to be burned
+     * @param receiver The address that will receive the collateral assets
+     * @return cptAndCstSharesIn amount of swap token and principal token user spends
      */
-    function unwindDeposit(MarketId id, uint256 collateralAmountOut) external returns (uint256 swapTokenAndPrincipalTokenIn);
+    function unwindDeposit(MarketId poolId, uint256 collateralAssetAmountOut, address owner, address receiver) external returns (uint256 cptAndCstSharesIn);
 
     /**
      * @notice returns amount of value locked in Cork Pool
-     * @param id The Cork Pool id
+     * @param poolId The Cork Pool id
      * @param collateralAsset true if you want to get value locked in Collateral Asset, false if you want to get value locked in Reference Asset
      * @return lockedAmount the amount of value locked in the Cork Pool
      */
-    function valueLocked(MarketId id, bool collateralAsset) external view returns (uint256 lockedAmount);
+    function valueLocked(MarketId poolId, bool collateralAsset) external view returns (uint256 lockedAmount);
 
     /**
      * @notice returns base redemption fees (1e18 = 1%)
-     * @param id The Cork Pool id
+     * @param poolId The Cork Pool id
      * @return fees the base redemption fee
      */
-    function baseRedemptionFee(MarketId id) external view returns (uint256 fees);
+    function baseRedemptionFee(MarketId poolId) external view returns (uint256 fees);
 
     /**
      * @notice Returns the pause status for all operations in a market
@@ -216,122 +211,122 @@ interface IPool is IUnwindSwap, Initialize {
 
     /**
      * @notice Previews the amount of CPT and CST tokens that would be minted for a deposit
-     * @param id The Cork Pool id
+     * @param poolId The Cork Pool id
      * @param collateralAssetIn The amount of collateral asset to deposit
      * @return received The amount of CPT and CST tokens that would be minted
      */
-    function previewDeposit(MarketId id, uint256 collateralAssetIn) external view returns (uint256 received);
+    function previewDeposit(MarketId poolId, uint256 collateralAssetIn) external view returns (uint256 received);
 
     /**
-     * @notice Previews the amount of CST tokens that would be received for a swap
-     * @param id The Cork Pool id
-     * @param amount The amount of collateral asset to swap
-     * @return received The amount of CST tokens that would be received
-     * @return _exchangeRate The exchange rate used for the swap
-     * @return fee The fee that would be charged
-     * @return cstUsed The amount of CST tokens used in the calculation
+     * @notice Previews the amount of CST shares and reference token compensation that would be required for a swap
+     * @param poolId The Cork Pool id
+     * @param assets The exact amount of collateral assets that would be received
+     * @return sharesOut The amount of CST shares that would be locked from msg.sender
+     * @return compensation The amount of reference token that would be locked from msg.sender
      */
-    function previewSwap(MarketId id, uint256 amount) external view returns (uint256 received, uint256 _exchangeRate, uint256 fee, uint256 cstUsed);
+    function previewSwap(MarketId poolId, uint256 assets) external view returns (uint256 sharesOut, uint256 compensation);
 
     /**
      * @notice Previews the amounts of assets that would be received when redeeming CPT tokens
-     * @param id The Cork Pool id
+     * @param poolId The Cork Pool id
      * @param amount The amount of CPT tokens to redeem
      * @return accruedReferenceAsset The amount of reference asset that would be received
      * @return accruedCollateralAsset The amount of collateral asset that would be received
      */
-    function previewRedeem(MarketId id, uint256 amount) external view returns (uint256 accruedReferenceAsset, uint256 accruedCollateralAsset);
+    function previewRedeem(MarketId poolId, uint256 amount) external view returns (uint256 accruedReferenceAsset, uint256 accruedCollateralAsset);
 
     /**
      * @notice Previews the amount of CPT and CST tokens needed to unwind deposit for specific collateral amount
-     * @param id The Cork Pool id
+     * @param poolId The Cork Pool id
      * @param collateralAssetAmountOut The desired amount of collateral asset to receive
-     * @return swapTokenAndPrincipalTokenIn The amount of CPT and CST tokens that would need to be burned
+     * @return cptAndCstSharesIn The amount of CPT and CST tokens that would need to be burned
      */
-    function previewUnwindDeposit(MarketId id, uint256 collateralAssetAmountOut) external view returns (uint256 swapTokenAndPrincipalTokenIn);
+    function previewUnwindDeposit(MarketId poolId, uint256 collateralAssetAmountOut) external view returns (uint256 cptAndCstSharesIn);
 
     /**
      * @notice Previews the outcome of unwinding a swap operation
-     * @param id The Cork Pool id
+     * @param poolId The Cork Pool id
      * @param amount The amount of CPT tokens to unwind
      * @return receivedRef The amount of reference asset that would be received
      * @return receivedCst The amount of CST tokens that would be received
      * @return feePercentage The fee percentage that would be applied
      * @return fee The fee amount that would be charged
-     * @return exchangeRates The exchange rate that would be used
+     * @return swapRate The swap rate that would be used
      */
-    function previewUnwindSwap(MarketId id, uint256 amount) external view returns (uint256 receivedRef, uint256 receivedCst, uint256 feePercentage, uint256 fee, uint256 exchangeRates);
+    function previewUnwindSwap(MarketId poolId, uint256 amount) external view returns (uint256 receivedRef, uint256 receivedCst, uint256 feePercentage, uint256 fee, uint256 swapRate);
 
     /**
      * @notice Mints a specific amount of CPT and CST tokens by depositing collateral
-     * @param id The market identifier
+     * @param poolId The market identifier
      * @param swapAndPricipalTokenAmountOut The desired amount of CPT and CST tokens to mint
      * @param receiver The address that will receive the CPT and CST tokens
-     * @return collateralAmountIn The amount of collateral asset required
-     * @return exchangeRate The exchange rate used
+     * @return collateralAssetAmountIn The amount of collateral asset required
      */
-    function mint(MarketId id, uint256 swapAndPricipalTokenAmountOut, address receiver) external returns (uint256 collateralAmountIn, uint256 exchangeRate);
+    function mint(MarketId poolId, uint256 swapAndPricipalTokenAmountOut, address receiver) external returns (uint256 collateralAssetAmountIn);
 
     /**
      * @notice Previews the amount of collateral needed to mint specific amounts of CPT and CST tokens
-     * @param id The Cork Pool id
+     * @param poolId The Cork Pool id
      * @param swapAndPricipalTokenAmountOut The desired amount of CPT and CST tokens to mint
-     * @return collateralAmountIn The amount of collateral asset that would be required
-     * @return exchangeRate The current exchange rate
+     * @return collateralAssetAmountIn The amount of collateral asset that would be required
      */
-    function previewMint(MarketId id, uint256 swapAndPricipalTokenAmountOut) external view returns (uint256 collateralAmountIn, uint256 exchangeRate);
+    function previewMint(MarketId poolId, uint256 swapAndPricipalTokenAmountOut) external view returns (uint256 collateralAssetAmountIn);
 
     /**
      * @notice returns amount of collateralAsset user will get when swap Collateral Asset with Principal Token+Swap Token
-     * @param id The Cork Pool id
-     * @param cptAndCstAmountIn the amount of swap token and principal token to unwind
-     * @return collateralAsset amount of Collateral Asset user received
+     * @param poolId The Cork Pool id
+     * @param cptAndCstSharesIn the amount of swap token and principal token to unwind
+     * @param owner The address that owns the CPT and CST tokens to be burned
+     * @param receiver The address that will receive the collateral assets
+     * @return collateralAssetOut amount of Collateral Asset user received
      */
-    function unwindMint(MarketId id, uint256 cptAndCstAmountIn) external returns (uint256 collateralAsset);
+    function unwindMint(MarketId poolId, uint256 cptAndCstSharesIn, address owner, address receiver) external returns (uint256 collateralAssetOut);
 
     /**
      * @notice Previews the amount of collateral that would be received when unwinding mint
-     * @param id The Cork Pool id
-     * @param cptAndCstAmountIn The amount of CPT and CST tokens to burn
-     * @return collateralAsset The amount of collateral asset that would be received
+     * @param poolId The Cork Pool id
+     * @param cptAndCstSharesIn The amount of CPT and CST tokens to burn
+     * @return collateralAssetOut The amount of collateral asset that would be received
      */
-    function previewUnwindMint(MarketId id, uint256 cptAndCstAmountIn) external view returns (uint256 collateralAsset);
+    function previewUnwindMint(MarketId poolId, uint256 cptAndCstSharesIn) external view returns (uint256 collateralAssetOut);
 
     /**
      * @notice Returns the maximum amount of CPT and CST tokens that can be minted
-     * @param id The Cork Pool id
+     * @param poolId The Cork Pool id
      * @param owner The address of the owner
      * @return amount The maximum amount of CPT and CST tokens that can be minted
      */
-    function maxMint(MarketId id, address owner) external view returns (uint256 amount);
+    function maxMint(MarketId poolId, address owner) external view returns (uint256 amount);
 
     /**
      * @notice Returns the maximum amount of collateral asset that can be deposited
-     * @param id The Cork Pool id
+     * @param poolId The Cork Pool id
      * @param owner The address of the owner
      * @return amount The maximum amount of collateral asset that can be deposited
      */
-    function maxDeposit(MarketId id, address owner) external view returns (uint256 amount);
+    function maxDeposit(MarketId poolId, address owner) external view returns (uint256 amount);
 
     /**
      * @notice Gets the maximum amount of collateral asset that can be received by unwinding deposit
-     * @param id The Cork Pool id
+     * @param poolId The Cork Pool id
      * @param owner The address to check balances for
      * @return collateralAssetAmountOut The maximum amount of collateral asset that can be received
      */
-    function maxUnwindDeposit(MarketId id, address owner) external view returns (uint256 collateralAssetAmountOut);
+    function maxUnwindDeposit(MarketId poolId, address owner) external view returns (uint256 collateralAssetAmountOut);
 
     /**
      * @notice Gets the maximum amount of CPT and CST tokens that can be burned in unwind mint
-     * @param id The Cork Pool id
+     * @param poolId The Cork Pool id
      * @param owner The address to check balances for
-     * @return swapTokenAndPrincipalTokenIn The maximum amount of tokens that can be burned
+     * @return cptAndCstSharesIn The maximum amount of tokens that can be burned
      */
-    function maxUnwindMint(MarketId id, address owner) external view returns (uint256 swapTokenAndPrincipalTokenIn);
+    function maxUnwindMint(MarketId poolId, address owner) external view returns (uint256 cptAndCstSharesIn);
 
     /// @notice This function burns `sharesIn` (CPT) from `owner` and send exactly `collateralAssetOut` of collateral token from the vault to `receiver`. Also sends `referenceAssetOut` of reference token from the vault to `receiver`. See https://github.com/OpenZeppelin/openzeppelin-contracts/blob/release-v5.4/contracts/token/ERC20/extensions/ERC4626.sol#L197
     /// @notice **EITHER** collateralAssetOut or referenceAssetOut **MUST BE** non-zero.
     /// @notice Alternative: This function burns `sharesIn` (CPT) from `owner` and send exactly `referenceAssetOut` of reference token from the vault to `receiver`. Also sends `collateralAssetOut` of collateral token from the vault to `receiver`.
+    /// @notice WARNING : this function MAY gives out inexact collateralAssetOut due to rounding errors.
+    /// it may give up to 2e(collateralAssetDecimals - 17). for 18 decimals token on both sides(colltaeral & reference), it'll give excess token up to 2 wei
     /**
      * @param marketId The Cork Pool id
      * @param collateralAssetOut The amount of collateral asset to withdraw
@@ -339,9 +334,10 @@ interface IPool is IUnwindSwap, Initialize {
      * @param owner The address of the owner
      * @param receiver The address of the receiver
      * @return sharesIn The amount of CPT tokens burned
+     * @return actualCollateralAssetOut The amount of collateral asset received
      * @return actualReferenceAssetOut The amount of reference asset received
      */
-    function withdraw(MarketId marketId, uint256 collateralAssetOut, uint256 referenceAssetOut, address owner, address receiver) external returns (uint256 sharesIn, uint256 actualReferenceAssetOut);
+    function withdraw(MarketId marketId, uint256 collateralAssetOut, uint256 referenceAssetOut, address owner, address receiver) external returns (uint256 sharesIn, uint256 actualCollateralAssetOut, uint256 actualReferenceAssetOut);
 
     /**
      * @notice Previews the amount of CPT tokens needed to withdraw specific amounts of assets
@@ -365,7 +361,7 @@ interface IPool is IUnwindSwap, Initialize {
      * @notice Returns the maximum amount of CST shares that could be transferred from `owner` through `exercise` and not cause a revert.
      * @dev MUST NOT be higher than the actual maximum that would be accepted (should underestimate if necessary).
      * @dev MUST factor in both global and user-specific limits, including global caps and owner's balance of CST and reference asset.
-     * @dev MUST factor in other restrictive conditions, like if exchange is entirely disabled (even temporarily) it MUST return 0.
+     * @dev MUST factor in other restrictive conditions, like if swap is entirely disabled (even temporarily) it MUST return 0.
      * @dev MUST NOT revert.
      * @param marketId The Cork Pool id
      * @param owner The address of the owner
@@ -389,11 +385,11 @@ interface IPool is IUnwindSwap, Initialize {
      * @dev MUST return the maximum amount of CPT shares that could be transferred from `owner` through `redeem` and not cause a revert, which MUST NOT be higher than the actual maximum that would be accepted (it should underestimate if necessary).
      * @dev MUST factor in both global and user-specific limits, for example, global caps and owner's balance of CPT. MUST factor in other restrictive conditions, like if redemption is entirely disabled (even temporarily) it MUST return 0.
      * @dev MUST NOT revert.
-     * @param id The Cork Pool id
+     * @param poolId The Cork Pool id
      * @param owner The address of the owner
      * @return shares The maximum amount of CPT shares that could be redeemed
      */
-    function maxRedeem(MarketId id, address owner) external view returns (uint256 shares);
+    function maxRedeem(MarketId poolId, address owner) external view returns (uint256 shares);
 
     /**
      * @notice Returns the maximum amount of collateral assets that could be transferred from `owner` through `swap` and not cause a revert.

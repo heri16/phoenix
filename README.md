@@ -3,11 +3,26 @@
 This repository contains core smart contracts of Depeg Swaps.
 # Build
 
-Install required dependencies 
+Install toolchain manager (mise)
+
+```bash
+curl --proto '=https' --tlsv1.2 https://mise.run | sh
+bash
+eval "$(mise activate bash)"
+```
+
+Install toolchains (forge)
+
+```bash
+mise install -y
+```
+
+Install library dependencies (lib)
 
 ```bash
 forge install
 ```
+
 To build & compile all contracts for testing purposes run :
 
 ```bash
@@ -24,10 +39,13 @@ FOUNDRY_PROFILE=optimized forge build
 
 To install kontrol use below commands : 
 
-```bash 
-bash <(curl https://kframework.org/install): install kup package manager.
-kup install kontrol: install Kontrol.
-kup list kontrol: list available Kontrol versions.
+```bash
+# install kup package manager
+bash <(curl https://kframework.org/install) 
+# install Kontrol
+kup install kontrol
+# list available Kontrol versions
+kup list kontrol
 ```
 
 # Tests

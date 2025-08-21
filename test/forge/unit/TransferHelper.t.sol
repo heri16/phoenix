@@ -66,13 +66,13 @@ contract TransferHelperTest is Helper {
 
     function test_TokenNativeDecimalsToFixed() public {
         uint256 amount = 2 * 10 ** 6;
-        uint256 fixedAmount = TransferHelper.tokenNativeDecimalsToFixed(amount, token6);
+        uint256 fixedAmount = TransferHelper.tokenNativeDecimalsToFixed(amount, token6.decimals());
         vm.assertEq(fixedAmount, 2 * 10 ** 18);
     }
 
     function test_FixedToTokenNativeDecimals() public {
         uint256 amount = 3 * 10 ** 18;
-        uint256 nativeAmount = TransferHelper.fixedToTokenNativeDecimals(amount, token6);
+        uint256 nativeAmount = TransferHelper.fixedToTokenNativeDecimals(amount, token6.decimals());
         vm.assertEq(nativeAmount, 3 * 10 ** 6);
     }
 }

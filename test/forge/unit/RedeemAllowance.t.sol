@@ -1,22 +1,21 @@
 pragma solidity ^0.8.30;
 
-import {IPool} from "./../../../contracts/interfaces/IPool.sol";
-import {DummyWETH} from "./../utils/dummy/DummyWETH.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {Shares} from "contracts/core/assets/Shares.sol";
+import {PoolShare} from "contracts/core/assets/PoolShare.sol";
 import {IErrors} from "contracts/interfaces/IErrors.sol";
 import {Helper} from "test/forge/Helper.sol";
+import {ERC20Mock} from "test/mocks/ERC20Mock.sol";
 
 contract RedeemAllowanceTest is Helper {
-    address owner = address(0x1);
+    address owner = DEFAULT_ADDRESS;
     address sender = address(0x2);
     address receiver = address(0x3);
 
     uint256 constant DEPOSIT_AMOUNT = 1 ether;
     uint256 constant REDEEM_AMOUNT = 0.5 ether;
 
-    DummyWETH collateralAsset;
-    DummyWETH referenceAsset;
+    ERC20Mock collateralAsset;
+    ERC20Mock referenceAsset;
 
     function setUp() public {
         vm.startPrank(owner);
@@ -42,7 +41,7 @@ contract RedeemAllowanceTest is Helper {
         vm.startPrank(owner);
 
         (address principalToken,) = corkPool.shares(defaultCurrencyId);
-        Shares(principalToken).approve(address(corkPool), REDEEM_AMOUNT);
+        PoolShare(principalToken).approve(address(corkPool), REDEEM_AMOUNT);
 
         uint256 ownerRaBalanceBefore = collateralAsset.balanceOf(owner);
         uint256 ownerPaBalanceBefore = referenceAsset.balanceOf(owner);
@@ -70,12 +69,12 @@ contract RedeemAllowanceTest is Helper {
         vm.startPrank(owner);
 
         (address principalToken,) = corkPool.shares(defaultCurrencyId);
-        Shares(principalToken).approve(sender, REDEEM_AMOUNT);
-        Shares(principalToken).approve(address(corkPool), REDEEM_AMOUNT);
+        PoolShare(principalToken).approve(sender, REDEEM_AMOUNT);
+        PoolShare(principalToken).approve(address(corkPool), REDEEM_AMOUNT);
 
         vm.stopPrank();
 
-        uint256 allowanceBefore = Shares(principalToken).allowance(owner, sender);
+        uint256 allowanceBefore = PoolShare(principalToken).allowance(owner, sender);
         assertEq(allowanceBefore, REDEEM_AMOUNT, "Allowance should be set correctly");
 
         uint256 receiverRaBalanceBefore = collateralAsset.balanceOf(receiver);
@@ -92,7 +91,7 @@ contract RedeemAllowanceTest is Helper {
         assertEq(receiverRaBalanceAfter - receiverRaBalanceBefore, actualRa, "Receiver should receive collateral assets");
         assertEq(receiverPaBalanceAfter - receiverPaBalanceBefore, actualPa, "Receiver should receive reference assets");
 
-        uint256 allowanceAfter = Shares(principalToken).allowance(owner, sender);
+        uint256 allowanceAfter = PoolShare(principalToken).allowance(owner, sender);
         assertEq(allowanceAfter, 0, "Allowance should be fully spent");
     }
 
@@ -110,7 +109,7 @@ contract RedeemAllowanceTest is Helper {
     function test_redeemWithExactAllowance() public {
         vm.startPrank(owner);
         (address principalToken,) = corkPool.shares(defaultCurrencyId);
-        Shares(principalToken).approve(sender, REDEEM_AMOUNT);
+        PoolShare(principalToken).approve(sender, REDEEM_AMOUNT);
         vm.stopPrank();
 
         uint256 receiverRaBalanceBefore = collateralAsset.balanceOf(receiver);
@@ -126,14 +125,14 @@ contract RedeemAllowanceTest is Helper {
         assertEq(receiverRaBalanceAfter - receiverRaBalanceBefore, actualRa, "Receiver should receive collateral assets");
         assertEq(receiverPaBalanceAfter - receiverPaBalanceBefore, actualPa, "Receiver should receive reference assets");
 
-        uint256 allowanceAfter = Shares(principalToken).allowance(owner, sender);
+        uint256 allowanceAfter = PoolShare(principalToken).allowance(owner, sender);
         assertEq(allowanceAfter, 0, "Allowance should be fully spent");
     }
 
     function test_redeemWithZeroAmount() public {
         vm.startPrank(owner);
 
-        vm.expectRevert(IErrors.ZeroDeposit.selector);
+        vm.expectRevert(IErrors.InvalidAmount.selector);
         corkPool.redeem(defaultCurrencyId, 0, owner, receiver);
 
         vm.stopPrank();
@@ -145,7 +144,7 @@ contract RedeemAllowanceTest is Helper {
         vm.startPrank(owner);
 
         (address principalToken,) = corkPool.shares(defaultCurrencyId);
-        Shares(principalToken).approve(address(corkPool), REDEEM_AMOUNT);
+        PoolShare(principalToken).approve(address(corkPool), REDEEM_AMOUNT);
 
         uint256 receiver1RaBalanceBefore = collateralAsset.balanceOf(receiver);
         uint256 receiver2RaBalanceBefore = collateralAsset.balanceOf(receiver2);
@@ -167,7 +166,7 @@ contract RedeemAllowanceTest is Helper {
         vm.startPrank(owner);
 
         (address principalToken,) = corkPool.shares(defaultCurrencyId);
-        Shares(principalToken).approve(address(corkPool), REDEEM_AMOUNT);
+        PoolShare(principalToken).approve(address(corkPool), REDEEM_AMOUNT);
 
         (uint256 previewPa, uint256 previewRa) = corkPool.previewRedeem(defaultCurrencyId, REDEEM_AMOUNT);
 
@@ -187,8 +186,8 @@ contract RedeemAllowanceTest is Helper {
 
         uint256 maxWithdrawAmount = corkPool.maxWithdraw(defaultCurrencyId, owner);
 
-        assertGt(maxWithdrawAmount, 0, "Owner should be able to withdraw some amount");
-        assertGt(ownerShares, 0, "Owner should have shares");
+        assertEq(maxWithdrawAmount, DEPOSIT_AMOUNT, "Owner should be able to withdraw some amount");
+        assertEq(ownerShares, DEPOSIT_AMOUNT, "Owner should have shares");
 
         vm.stopPrank();
     }
@@ -205,7 +204,7 @@ contract RedeemAllowanceTest is Helper {
         vm.startPrank(owner);
 
         uint256 maxWithdrawBeforePause = corkPool.maxWithdraw(defaultCurrencyId, owner);
-        assertGt(maxWithdrawBeforePause, 0, "Should be able to withdraw before pause");
+        assertEq(maxWithdrawBeforePause, DEPOSIT_AMOUNT, "Should be able to withdraw before pause");
 
         overridePrank(DEFAULT_ADDRESS);
         corkConfig.pauseWithdrawals(defaultCurrencyId);
@@ -221,19 +220,19 @@ contract RedeemAllowanceTest is Helper {
         vm.startPrank(owner);
 
         (address principalToken,) = corkPool.shares(defaultCurrencyId);
-        Shares(principalToken).approve(address(corkPool), type(uint256).max);
+        PoolShare(principalToken).approve(address(corkPool), type(uint256).max);
 
         uint256 maxWithdrawAmount = corkPool.maxWithdraw(defaultCurrencyId, owner);
 
         uint256 receiverBalanceBefore = collateralAsset.balanceOf(receiver);
 
-        (uint256 sharesIn, uint256 actualReferenceAssetOut) = corkPool.withdraw(defaultCurrencyId, maxWithdrawAmount, 0, owner, receiver);
+        (uint256 sharesIn, uint256 actualCollateralAssetOut, uint256 actualReferenceAssetOut) = corkPool.withdraw(defaultCurrencyId, maxWithdrawAmount, 0, owner, receiver);
 
         uint256 receiverBalanceAfter = collateralAsset.balanceOf(receiver);
         uint256 actualWithdrawn = receiverBalanceAfter - receiverBalanceBefore;
 
         assertEq(actualWithdrawn, maxWithdrawAmount, "Actual withdraw should match maxWithdraw");
-        assertGt(sharesIn, 0, "Should have burned some shares");
+        assertEq(sharesIn, DEPOSIT_AMOUNT, "Should have burned some shares");
 
         vm.stopPrank();
     }
@@ -247,7 +246,7 @@ contract RedeemAllowanceTest is Helper {
         uint256 maxWithdraw = corkPool.maxWithdraw(defaultCurrencyId, owner);
 
         if (ownerShares > 0) {
-            Shares(principalToken).approve(address(corkPool), type(uint256).max);
+            PoolShare(principalToken).approve(address(corkPool), type(uint256).max);
             corkPool.withdraw(defaultCurrencyId, maxWithdraw, 0, owner, owner);
         }
 
@@ -257,7 +256,7 @@ contract RedeemAllowanceTest is Helper {
         vm.stopPrank();
     }
 
-    function test_maxWithdraw_beforeExpiry() public {
+    function test_maxWithdraw_ShouldBeZeroBeforeExpiry() public {
         vm.startPrank(owner);
 
         uint256 expiry = corkPool.expiry(defaultCurrencyId);
@@ -265,7 +264,7 @@ contract RedeemAllowanceTest is Helper {
 
         uint256 maxWithdrawAmount = corkPool.maxWithdraw(defaultCurrencyId, owner);
 
-        assertGt(maxWithdrawAmount, 0, "Should be able to withdraw before expiry");
+        assertEq(maxWithdrawAmount, 0, "Should not be able to withdraw before expiry");
 
         vm.stopPrank();
     }

@@ -49,10 +49,10 @@ interface IConfig {
      * @param referenceAsset Address of Reference Asset
      * @param collateralAsset Address of Collateral Asset
      */
-    function createNewMarket(address referenceAsset, address collateralAsset, uint256 expiryTimestamp, address exchangeRateProvider) external;
+    function createNewMarket(address referenceAsset, address collateralAsset, uint256 expiryTimestamp, address rateOracle, uint256 rateMin, uint256 rateMax, uint256 rateChangePerDayMax, uint256 rateChangeCapacityMax) external;
 
     /**
-     * @notice Updates fee rates for pool unwindSwap
+     * @notice Updates fee rate for pool unwindSwap
      * @param id id of Cork Pool
      * @param newUnwindSwapFeePercentage new value of unwindSwap fees, make sure it has 18 decimals(e.g 1% = 1e18)
      */
@@ -63,13 +63,6 @@ interface IConfig {
      * @param newBaseRedemptionFeePercentage new value of fees, make sure it has 18 decimals(e.g 1% = 1e18)
      */
     function updateBaseRedemptionFeePercentage(MarketId id, uint256 newBaseRedemptionFeePercentage) external;
-
-    /**
-     * @notice Updates the rate of the Cork Pool
-     * @param id the id of Cork Pool
-     * @param newRate the new rate to update
-     */
-    function updateCorkPoolRate(MarketId id, uint256 newRate) external;
 
     /**
      * @notice Pause this contract

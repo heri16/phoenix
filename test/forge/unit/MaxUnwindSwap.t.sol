@@ -2,19 +2,26 @@
 pragma solidity ^0.8.30;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {IPool} from "contracts/interfaces/IPool.sol";
+import {IErrors} from "contracts/interfaces/IErrors.sol";
+import {IPoolManager} from "contracts/interfaces/IPoolManager.sol";
 import {MarketId} from "contracts/libraries/Market.sol";
 import {Helper} from "test/forge/Helper.sol";
-import {DummyWETH} from "test/forge/utils/dummy/DummyWETH.sol";
+import {ERC20Mock} from "test/mocks/ERC20Mock.sol";
 
 contract MaxUnwindSwapTest is Helper {
-    DummyWETH collateralAsset;
-    DummyWETH referenceAsset;
+    ERC20Mock collateralAsset;
+    ERC20Mock referenceAsset;
     MarketId marketId;
 
     address user = address(0x123);
     address user2 = address(0x456);
     address owner = address(0x789);
+
+    uint256 DEPOSIT_AMOUNT = 1000 ether;
+    uint256 SWAP_AMOUNT = 100 ether;
+
+    address principalToken;
+    address swapToken;
 
     function setUp() public {
         vm.startPrank(DEFAULT_ADDRESS);
@@ -25,11 +32,17 @@ contract MaxUnwindSwapTest is Helper {
         vm.deal(user2, type(uint256).max);
         vm.deal(DEFAULT_ADDRESS, type(uint256).max);
 
-        (address principalToken, address swapToken) = corkPool.shares(defaultCurrencyId);
+        (principalToken, swapToken) = corkPool.shares(marketId);
 
         vm.startPrank(user);
         collateralAsset.deposit{value: type(uint128).max}();
         referenceAsset.deposit{value: type(uint128).max}();
+
+        // Deposit first
+        collateralAsset.approve(address(corkPool), DEPOSIT_AMOUNT);
+        corkPool.deposit(marketId, DEPOSIT_AMOUNT, currentCaller());
+
+        // Approve for Swap
         IERC20(referenceAsset).approve(address(corkPool), type(uint256).max);
         IERC20(swapToken).approve(address(corkPool), type(uint256).max);
 
@@ -51,15 +64,9 @@ contract MaxUnwindSwapTest is Helper {
     }
 
     function test_maxUnwindSwap_BasicFunctionality() external {
-        // Setup: Create a market with some liquidity
+        // SWAP FIRST
         vm.startPrank(user);
-        collateralAsset.approve(address(corkPool), 1000 ether);
-        corkPool.deposit(marketId, 1000 ether, currentCaller());
-
-        // CRITICAL: Do swap FIRST to create swap token liquidity
-        (address principalToken, address swapToken) = corkPool.shares(marketId);
-        IERC20(principalToken).approve(address(corkPool), 100 ether);
-        corkPool.swap(marketId, 100 ether, user);
+        corkPool.swap(marketId, SWAP_AMOUNT, user);
         vm.stopPrank();
 
         // Add more deposits for liquidity
@@ -80,15 +87,9 @@ contract MaxUnwindSwapTest is Helper {
     }
 
     function test_maxUnwindSwap_WhenUnwindSwapPaused() external {
-        // Setup market with proper flow: deposit -> swap -> more deposits
+        // SWAP FIRST
         vm.startPrank(user);
-        collateralAsset.approve(address(corkPool), 1000 ether);
-        corkPool.deposit(marketId, 1000 ether, currentCaller());
-
-        // Do swap first
-        (address principalToken,) = corkPool.shares(marketId);
-        IERC20(principalToken).approve(address(corkPool), 100 ether);
-        corkPool.swap(marketId, 100 ether, user);
+        corkPool.swap(marketId, SWAP_AMOUNT, user);
         vm.stopPrank();
 
         // Pause unwind swaps
@@ -101,15 +102,9 @@ contract MaxUnwindSwapTest is Helper {
     }
 
     function test_maxUnwindSwap_WhenExpired() external {
-        // Setup market with proper flow
         vm.startPrank(user);
-        collateralAsset.approve(address(corkPool), 1000 ether);
-        corkPool.deposit(marketId, 1000 ether, currentCaller());
-
         // Do swap first
-        (address principalToken,) = corkPool.shares(marketId);
-        IERC20(principalToken).approve(address(corkPool), 100 ether);
-        corkPool.swap(marketId, 100 ether, user);
+        corkPool.swap(marketId, SWAP_AMOUNT, user);
         vm.stopPrank();
 
         // Fast forward past expiry
@@ -129,19 +124,17 @@ contract MaxUnwindSwapTest is Helper {
     function test_maxUnwindSwap_ConsistencyWithPreview() external {
         // Setup: Create a market with liquidity
         vm.startPrank(user);
-        collateralAsset.approve(address(corkPool), 2000 ether);
-        corkPool.deposit(marketId, 2000 ether, currentCaller());
+        collateralAsset.approve(address(corkPool), DEPOSIT_AMOUNT);
+        corkPool.deposit(marketId, DEPOSIT_AMOUNT, currentCaller());
 
         // CRITICAL: Do swap FIRST to create swap token liquidity
-        (address principalToken,) = corkPool.shares(marketId);
-        IERC20(principalToken).approve(address(corkPool), 100 ether);
-        corkPool.swap(marketId, 100 ether, user);
+        corkPool.swap(marketId, SWAP_AMOUNT, user);
         vm.stopPrank();
 
         // Add more deposits for additional liquidity
         vm.startPrank(user2);
-        collateralAsset.approve(address(corkPool), 1000 ether);
-        corkPool.deposit(marketId, 1000 ether, currentCaller());
+        collateralAsset.approve(address(corkPool), DEPOSIT_AMOUNT);
+        corkPool.deposit(marketId, DEPOSIT_AMOUNT, currentCaller());
         vm.stopPrank();
 
         uint256 maxAmount = corkPool.maxUnwindSwap(marketId, user);
@@ -163,12 +156,12 @@ contract MaxUnwindSwapTest is Helper {
         vm.startPrank(DEFAULT_ADDRESS);
 
         // Create market with different decimals using Helper
-        (DummyWETH newCollateralAsset, DummyWETH newReferenceAsset, MarketId newMarketId) = createMarket(365 days, DEFAULT_REVERSE_SWAP_FEE, DEFAULT_BASE_REDEMPTION_FEE, referenceDecimals, collateralDecimals);
+        (ERC20Mock newCollateralAsset, ERC20Mock newReferenceAsset, MarketId newMarketId) = createMarket(365 days, DEFAULT_REVERSE_SWAP_FEE, DEFAULT_BASE_REDEMPTION_FEE, referenceDecimals, collateralDecimals);
 
         corkConfig.updateUnwindSwapFeeRate(newMarketId, 0);
 
         // Mint tokens to users
-        uint256 collateralAmount = 1_000_000 * 10 ** collateralDecimals;
+        uint256 collateralAssetAmount = 1_000_000 * 10 ** collateralDecimals;
         uint256 referenceAmount = 1_000_000 * 10 ** referenceDecimals;
 
         vm.deal(user, type(uint256).max);
@@ -192,14 +185,14 @@ contract MaxUnwindSwapTest is Helper {
         // 1. Deposit first
 
         // 2. CRITICAL: Do swap FIRST before testing unwind swap
-        (address principalToken, address swapToken) = corkPool.shares(newMarketId);
+        (principalToken, swapToken) = corkPool.shares(newMarketId);
         IERC20(newReferenceAsset).approve(address(corkPool), type(uint256).max);
         IERC20(newCollateralAsset).approve(address(corkPool), type(uint256).max);
         IERC20(swapToken).approve(address(corkPool), type(uint256).max);
 
-        corkPool.deposit(newMarketId, collateralAmount, currentCaller());
+        corkPool.deposit(newMarketId, collateralAssetAmount, currentCaller());
 
-        uint256 swapAmount = collateralAmount / 2; // Use 50% for swap
+        uint256 swapAmount = collateralAssetAmount / 2; // Use 50% for swap
 
         corkPool.swap(newMarketId, swapAmount, user);
         vm.stopPrank();
@@ -263,9 +256,6 @@ contract MaxUnwindSwapTest is Helper {
         // Should not revert regardless of liquidity levels
         assertTrue(maxAmount >= 0, "maxUnwindSwap should handle different liquidity levels");
 
-        // Get swap token address for balance checks
-        (, address swapToken) = corkPool.shares(marketId);
-
         // Get initial balances
         uint256 initialRefBalance = IERC20(referenceAsset).balanceOf(user);
         uint256 initialSwapBalance = IERC20(swapToken).balanceOf(user);
@@ -293,28 +283,31 @@ contract MaxUnwindSwapTest is Helper {
         assertApproxEqAbs(availableSwapAfter, 0, 0.6 ether, "Available swap tokens should be close to 0 after max unwind swap");
     }
 
-    function test_maxUnwindSwap_NeverReverts() external {
-        // Test that maxUnwindSwap never reverts under various conditions
+    function test_maxUnwindSwap_NeverReverts_ForValidMarket() external {
+        // Test that maxUnwindSwap never reverts under various conditions Except for expired market
 
-        // 1. Uninitialized market
+        // 1. Uninitialized market Will revert
         MarketId uninitializedId = MarketId.wrap(keccak256("uninitialized"));
-        uint256 result1 = corkPool.maxUnwindSwap(uninitializedId, user);
-        assertEq(result1, 0, "Should return 0 for uninitialized market");
+        vm.expectRevert(abi.encodeWithSelector(IErrors.NotInitialized.selector));
+        corkPool.maxUnwindSwap(uninitializedId, user);
 
-        // 2. Normal market
+        // 2. Normal market Will not revert
         uint256 result2 = corkPool.maxUnwindSwap(marketId, user);
         assertTrue(result2 >= 0, "Should not revert for normal market");
 
-        // 3. Market with zero address user
+        // 3. Market with zero address user Will not revert
         uint256 result3 = corkPool.maxUnwindSwap(marketId, address(0));
         assertTrue(result3 >= 0, "Should not revert with zero address user");
 
-        // 4. After proper operations: deposit -> swap -> more deposits
+        // 4. After proper operations: deposit -> swap -> more deposits Will not revert
         vm.startPrank(user);
-        collateralAsset.approve(address(corkPool), 1000 ether);
-        corkPool.deposit(marketId, 1000 ether, currentCaller());
+        collateralAsset.approve(address(corkPool), DEPOSIT_AMOUNT);
+        corkPool.deposit(marketId, DEPOSIT_AMOUNT, currentCaller());
 
-        // Do swap first
+        // // Do swap first
+        // corkPool.swap(marketId, SWAP_AMOUNT, user);
+
+        // Do swap first Will not revert
         (address principalToken,) = corkPool.shares(marketId);
         IERC20(principalToken).approve(address(corkPool), 100 ether);
         corkPool.swap(marketId, 100 ether, user);
@@ -333,18 +326,17 @@ contract MaxUnwindSwapTest is Helper {
 
         // 1. Deposit collateral
         vm.startPrank(user);
-        collateralAsset.approve(address(corkPool), 1000 ether);
-        corkPool.deposit(marketId, 1000 ether, currentCaller());
+        collateralAsset.approve(address(corkPool), DEPOSIT_AMOUNT);
+        corkPool.deposit(marketId, DEPOSIT_AMOUNT, currentCaller());
 
         // Still should be 0 - no swap tokens yet
         uint256 maxAfterDeposit = corkPool.maxUnwindSwap(marketId, user);
         assertEq(maxAfterDeposit, 0, "Should be 0 after deposit but before swap");
 
-        (address principalToken, address swapToken) = corkPool.shares(defaultCurrencyId);
+        (principalToken, swapToken) = corkPool.shares(defaultCurrencyId);
         IERC20(referenceAsset).approve(address(corkPool), type(uint256).max);
-        IERC20(collateralAsset).approve(address(corkPool), type(uint256).max);
         IERC20(swapToken).approve(address(corkPool), type(uint256).max);
-        corkPool.swap(marketId, 100 ether, user);
+        corkPool.swap(marketId, SWAP_AMOUNT, user);
 
         // Now should have positive max unwind swap
         uint256 maxAfterSwap = corkPool.maxUnwindSwap(marketId, user);

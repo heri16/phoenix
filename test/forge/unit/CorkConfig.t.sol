@@ -3,11 +3,12 @@ pragma solidity ^0.8.30;
 
 import {CorkConfig} from "contracts/core/CorkConfig.sol";
 import {IConfig} from "contracts/interfaces/IConfig.sol";
-import {MarketId} from "contracts/libraries/Market.sol";
+import {IErrors} from "contracts/interfaces/IErrors.sol";
+import {Market, MarketId} from "contracts/libraries/Market.sol";
 import {IAccessControl} from "openzeppelin-contracts/contracts/access/IAccessControl.sol";
 import {Pausable} from "openzeppelin-contracts/contracts/utils/Pausable.sol";
 import {Helper} from "test/forge/Helper.sol";
-import {DummyWETH} from "test/forge/utils/dummy/DummyWETH.sol";
+import {ERC20Mock} from "test/mocks/ERC20Mock.sol";
 
 contract CorkConfigTest is Helper {
     CorkConfig private config;
@@ -16,8 +17,8 @@ contract CorkConfigTest is Helper {
     address private rateUpdater;
     address private user;
 
-    DummyWETH collateralAsset;
-    DummyWETH referenceAsset;
+    ERC20Mock collateralAsset;
+    ERC20Mock referenceAsset;
     MarketId id;
 
     // events
@@ -51,7 +52,7 @@ contract CorkConfigTest is Helper {
 
         vm.startPrank(DEFAULT_ADDRESS);
         deployContracts(DEFAULT_ADDRESS, DEFAULT_ADDRESS);
-        (collateralAsset, referenceAsset, id) = createNewMarketPair(block.timestamp + 1 days);
+        (collateralAsset, referenceAsset, id) = createMarket(block.timestamp + 1 days);
         vm.stopPrank();
     }
 
@@ -88,7 +89,6 @@ contract CorkConfigTest is Helper {
         assertEq(config.getRoleAdmin(config.MARKET_ADMIN_ROLE()), config.MANAGER_ROLE());
 
         // Assign variables correctly
-        assertNotEq(address(config.defaultExchangeRateProvider()), address(0));
         assertEq(address(config.corkPool()), address(0));
         assertEq(address(config.treasury()), address(0));
     }
@@ -167,6 +167,18 @@ contract CorkConfigTest is Helper {
     function test_GrantRoleShouldWorkCorrectly() public {
         bytes32 role = config.RATE_UPDATERS_ROLE();
         vm.startPrank(manager);
+        assertFalse(config.hasRole(role, rateUpdater));
+
+        vm.expectEmit(false, false, false, true);
+        emit RoleGranted(role, rateUpdater, manager);
+        config.grantRole(role, rateUpdater);
+        assertTrue(config.hasRole(role, rateUpdater));
+    }
+
+    function test_GrantRoleShouldWorkCorrectlyWhenNoManagerRole() public {
+        bytes32 role = config.RATE_UPDATERS_ROLE();
+        vm.startPrank(admin);
+        config.revokeRole(config.MANAGER_ROLE(), manager);
         assertFalse(config.hasRole(role, rateUpdater));
 
         vm.expectEmit(false, false, false, true);
@@ -301,7 +313,7 @@ contract CorkConfigTest is Helper {
     function test_InitializeCorkPoolRevertWhenCalledByNonMarketAdmin() public {
         vm.startPrank(user);
         vm.expectRevert(IConfig.CallerNotMarketAdmin.selector);
-        corkConfig.createNewMarket(address(collateralAsset), address(referenceAsset), 0, address(0));
+        corkConfig.createNewMarket(address(collateralAsset), address(referenceAsset), 0, address(0), 0, 0, 0, 0);
     }
 
     function test_initializeCorkPoolRevertWhenConfigIsPaused() external {
@@ -310,94 +322,88 @@ contract CorkConfigTest is Helper {
         assertTrue(corkConfig.paused());
 
         vm.expectRevert(Pausable.EnforcedPause.selector);
-        corkConfig.createNewMarket(address(collateralAsset), address(referenceAsset), 0, address(0));
+        corkConfig.createNewMarket(address(collateralAsset), address(referenceAsset), 0, address(0), 0, 0, 0, 0);
     }
 
     function test_initializeCorkPoolShouldWorkCorrectly() public {
         vm.startPrank(DEFAULT_ADDRESS);
+
+        (collateralAsset, referenceAsset, id) = createNewMarketPair(block.timestamp + 1 days);
+
         address paAddress;
         address raAddress;
         uint256 expiryTimestamp;
-        address exchangeRateProvider;
-        (paAddress, raAddress, expiryTimestamp, exchangeRateProvider) = corkPool.marketDetails(id);
+        address rateOracle;
+        uint256 rateMin;
+        uint256 rateMax;
+        uint256 rateChangePerDayMax;
+        uint256 rateChangeCapacityMax;
+        (paAddress, raAddress, expiryTimestamp, rateOracle, rateMin, rateMax, rateChangePerDayMax, rateChangeCapacityMax) = corkPool.marketDetails(id);
 
         assertEq(paAddress, address(0));
         assertEq(raAddress, address(0));
         assertEq(expiryTimestamp, 0);
-        assertEq(exchangeRateProvider, address(0));
+        assertEq(rateOracle, address(0));
+        assertEq(rateMin, 0);
+        assertEq(rateMax, 0);
+        assertEq(rateChangePerDayMax, 0);
+        assertEq(rateChangeCapacityMax, 0);
 
-        MarketId id = corkPool.getId(address(referenceAsset), address(collateralAsset), 1 days, address(corkConfig.defaultExchangeRateProvider()));
-        corkConfig.updateCorkPoolRate(id, defaultExchangeRate());
-        corkConfig.createNewMarket(address(referenceAsset), address(collateralAsset), 1 days, address(corkConfig.defaultExchangeRateProvider()));
+        MarketId id = corkPool.getId(address(referenceAsset), address(collateralAsset), 1 days, address(testOracle), DEFAULT_RATE_MIN, DEFAULT_RATE_MAX, DEFAULT_RATE_CHANGE_PER_DAY_MAX, DEFAULT_RATE_CHANGE_CAPACITY_MAX);
+        testOracle.setRate(id, defaultOracleRate());
+        corkConfig.createNewMarket(address(referenceAsset), address(collateralAsset), 1 days, address(testOracle), DEFAULT_RATE_MIN, DEFAULT_RATE_MAX, DEFAULT_RATE_CHANGE_PER_DAY_MAX, DEFAULT_RATE_CHANGE_CAPACITY_MAX);
 
-        (paAddress, raAddress, expiryTimestamp, exchangeRateProvider) = corkPool.marketDetails(id);
-        assertEq(paAddress, address(referenceAsset));
-        assertEq(raAddress, address(collateralAsset));
-        assertEq(expiryTimestamp, 1 days);
-        assertEq(exchangeRateProvider, address(corkConfig.defaultExchangeRateProvider()));
+        Market memory marketParams = corkPool.market(id);
+        assertEq(marketParams.referenceAsset, address(referenceAsset));
+        assertEq(marketParams.collateralAsset, address(collateralAsset));
+        assertEq(marketParams.expiryTimestamp, 1 days);
+        assertEq(marketParams.rateOracle, address(testOracle));
+        assertEq(marketParams.rateMin, DEFAULT_RATE_MIN);
+        assertEq(marketParams.rateMax, DEFAULT_RATE_MAX);
+        assertEq(marketParams.rateChangePerDayMax, DEFAULT_RATE_CHANGE_PER_DAY_MAX);
+        assertEq(marketParams.rateChangeCapacityMax, DEFAULT_RATE_CHANGE_CAPACITY_MAX);
     }
     //-----------------------------------------------------------------------------------------------------//
 
     //------------------------------------- Tests for updateUnwindSwapFeeRate ----------------------------------------//
     function test_UpdateUnwindSwapFeeRateRevertWhenCalledByNonManager() public {
-        assertEq(corkPool.unwindSwapFee(id), 0);
+        assertEq(corkPool.unwindSwapFee(id), DEFAULT_REVERSE_SWAP_FEE);
 
         vm.startPrank(user);
         vm.expectRevert(IConfig.CallerNotManager.selector);
-        corkConfig.updateUnwindSwapFeeRate(id, 1 ether);
+        corkConfig.updateUnwindSwapFeeRate(id, 1.23456789 ether);
 
-        assertEq(corkPool.unwindSwapFee(id), 0);
+        assertEq(corkPool.unwindSwapFee(id), DEFAULT_REVERSE_SWAP_FEE);
     }
 
     function test_UpdateUnwindSwapFeeRateShouldWorkCorrectly() public {
-        assertEq(corkPool.unwindSwapFee(id), 0);
+        assertEq(corkPool.unwindSwapFee(id), DEFAULT_REVERSE_SWAP_FEE);
 
         vm.startPrank(DEFAULT_ADDRESS);
-        corkConfig.updateUnwindSwapFeeRate(id, 1.123 ether);
+        corkConfig.updateUnwindSwapFeeRate(id, 1.23456789 ether);
 
-        assertEq(corkPool.unwindSwapFee(id), 1.123 ether);
+        assertEq(corkPool.unwindSwapFee(id), 1.23456789 ether);
     }
     //-----------------------------------------------------------------------------------------------------//
 
     //------------------------------------- Tests for updateBaseRedemptionFeePercentage ----------------------------------------//
     function test_UpdateBaseRedemptionFeePercentageRevertWhenCalledByNonManager() public {
-        assertEq(corkPool.baseRedemptionFee(id), 0);
+        assertEq(corkPool.baseRedemptionFee(id), DEFAULT_BASE_REDEMPTION_FEE);
 
         vm.startPrank(user);
         vm.expectRevert(IConfig.CallerNotManager.selector);
-        corkConfig.updateBaseRedemptionFeePercentage(id, 1 ether);
+        corkConfig.updateBaseRedemptionFeePercentage(id, 1.23456789 ether);
 
-        assertEq(corkPool.baseRedemptionFee(id), 0);
+        assertEq(corkPool.baseRedemptionFee(id), DEFAULT_BASE_REDEMPTION_FEE);
     }
 
     function test_UpdateBaseRedemptionFeePercentageShouldWorkCorrectly() public {
-        assertEq(corkPool.baseRedemptionFee(id), 0);
+        assertEq(corkPool.baseRedemptionFee(id), DEFAULT_BASE_REDEMPTION_FEE);
 
         vm.startPrank(DEFAULT_ADDRESS);
-        corkConfig.updateBaseRedemptionFeePercentage(id, 1.123 ether);
+        corkConfig.updateBaseRedemptionFeePercentage(id, 1.23456789 ether);
 
-        assertEq(corkPool.baseRedemptionFee(id), 1.123 ether);
-    }
-    //-----------------------------------------------------------------------------------------------------//
-
-    //------------------------------------- Tests for updateCorkPoolRate ----------------------------------------//
-    function test_UpdateCorkPoolRateRevertWhenCalledByNonUpdaterOrManager() public {
-        assertEq(corkConfig.defaultExchangeRateProvider().rate(id), 0);
-
-        vm.startPrank(user);
-        vm.expectRevert(IConfig.CallerNotManager.selector);
-        corkConfig.updateCorkPoolRate(id, 1 ether);
-
-        assertEq(corkConfig.defaultExchangeRateProvider().rate(id), 0);
-    }
-
-    function test_UpdateCorkPoolRateShouldWorkCorrectly() public {
-        assertEq(corkConfig.defaultExchangeRateProvider().rate(id), 0);
-
-        vm.startPrank(DEFAULT_ADDRESS);
-        corkConfig.updateCorkPoolRate(id, 1.123 ether);
-
-        assertEq(corkConfig.defaultExchangeRateProvider().rate(id), 1.123 ether);
+        assertEq(corkPool.baseRedemptionFee(id), 1.23456789 ether);
     }
     //-----------------------------------------------------------------------------------------------------//
 
@@ -546,6 +552,27 @@ contract CorkConfigTest is Helper {
 
         (, unwindSwapPaused,,,) = corkPool.pausedStates(id);
         assertTrue(unwindSwapPaused);
+
+        vm.expectRevert(IErrors.Paused.selector);
+        corkPool.unwindSwap(id, 0, address(8));
+    }
+
+    function test_PauseUnwindExerciseShouldWorkCorrectly() public {
+        vm.startPrank(DEFAULT_ADDRESS);
+
+        (,, MarketId _id) = createMarket(10_000);
+        (, bool unwindSwapPaused,,,) = corkPool.pausedStates(_id);
+        assertFalse(unwindSwapPaused);
+
+        vm.expectEmit(true, true, true, true);
+        emit UnwindSwapPaused(_id);
+        corkConfig.pauseUnwindSwaps(_id);
+
+        (, unwindSwapPaused,,,) = corkPool.pausedStates(_id);
+        assertTrue(unwindSwapPaused);
+
+        vm.expectRevert(IErrors.Paused.selector);
+        corkPool.unwindExercise(_id, 0, address(8), 0, 0);
     }
     //-----------------------------------------------------------------------------------------------------//
 
