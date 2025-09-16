@@ -7,13 +7,11 @@ import {PoolShare} from "contracts/core/assets/PoolShare.sol";
 import {SharesFactory} from "contracts/core/assets/SharesFactory.sol";
 import {IErrors} from "contracts/interfaces/IErrors.sol";
 import {ISharesFactory} from "contracts/interfaces/ISharesFactory.sol";
-import {Market, MarketId, MarketLibrary} from "contracts/libraries/Market.sol";
+import {Market, MarketId} from "contracts/libraries/Market.sol";
 import {Helper} from "test/forge/Helper.sol";
 import {ERC20Mock} from "test/mocks/ERC20Mock.sol";
 
 contract SharesFactoryTest is Helper {
-    using MarketLibrary for Market;
-
     ERC20Mock collateralAsset;
     ERC20Mock referenceAsset;
     PoolShare principalToken;
@@ -36,7 +34,7 @@ contract SharesFactoryTest is Helper {
         user1 = makeAddr("user1");
 
         vm.startPrank(DEFAULT_ADDRESS);
-        deployContracts(DEFAULT_ADDRESS, DEFAULT_ADDRESS);
+        deployContracts(DEFAULT_ADDRESS, DEFAULT_ADDRESS, DEFAULT_ADDRESS);
 
         (collateralAsset, referenceAsset, poolId) = createMarket(block.timestamp + 1 days);
         vm.deal(DEFAULT_ADDRESS, 100_000_000_000 ether);
@@ -85,7 +83,7 @@ contract SharesFactoryTest is Helper {
         assertEq(sharesFactory.isDeployed(address(collateralAsset)), false);
         assertEq(sharesFactory.isDeployed(address(referenceAsset)), false);
 
-        (ERC20Mock ra1, ERC20Mock pa1, MarketId id1) = createNewMarketPair(100 days);
+        (ERC20Mock ra1, ERC20Mock pa1, MarketId id1) = createNewPoolPair(100 days);
         assertEq(sharesFactory.isDeployed(address(ra1)), false);
         assertEq(sharesFactory.isDeployed(address(pa1)), false);
 
@@ -99,8 +97,17 @@ contract SharesFactoryTest is Helper {
 
         testOracle.setRate(id1, DEFAULT_ORACLE_RATE);
         // corkConfig.updateRateOfDefaultOracle(id1, DEFAULT_ORACLE_RATE);
-        _createNewMarket(
-            Market({collateralAsset: address(ra1), referenceAsset: address(pa1), expiryTimestamp: 100 days, rateMin: DEFAULT_RATE_MIN, rateMax: DEFAULT_RATE_MAX, rateChangePerDayMax: DEFAULT_RATE_CHANGE_PER_DAY_MAX, rateChangeCapacityMax: DEFAULT_RATE_CHANGE_CAPACITY_MAX, rateOracle: address(0)}),
+        _createNewPool(
+            Market({
+                collateralAsset: address(ra1),
+                referenceAsset: address(pa1),
+                expiryTimestamp: 100 days,
+                rateMin: DEFAULT_RATE_MIN,
+                rateMax: DEFAULT_RATE_MAX,
+                rateChangePerDayMax: DEFAULT_RATE_CHANGE_PER_DAY_MAX,
+                rateChangeCapacityMax: DEFAULT_RATE_CHANGE_CAPACITY_MAX,
+                rateOracle: address(testOracle)
+            }),
             DEFAULT_BASE_REDEMPTION_FEE,
             DEFAULT_REVERSE_SWAP_FEE
         );
@@ -114,7 +121,8 @@ contract SharesFactoryTest is Helper {
 
     // ------------------------------- getDeployedSwapShares ----------------------------------- //
     function test_getDeployedSwapSharesShouldWorkCorrectly() external {
-        (address principalToken, address swapToken) = sharesFactory.poolShares(poolParams().toId());
+        MarketId poolId = corkPool.getId(poolParams());
+        (address principalToken, address swapToken) = sharesFactory.poolShares(poolId);
         assertEq(principalToken, address(0));
         assertEq(swapToken, address(0));
 
@@ -122,7 +130,7 @@ contract SharesFactoryTest is Helper {
         address expectedPrincipalToken = vm.computeCreateAddress(address(sharesFactory), currentNonce);
         address expectedSwapToken = vm.computeCreateAddress(address(sharesFactory), currentNonce + 1);
 
-        MarketId poolId = createPool();
+        poolId = createPool();
 
         (address ct1, address ds1) = sharesFactory.poolShares(poolId);
         assertEq(ct1, expectedPrincipalToken);
@@ -130,7 +138,8 @@ contract SharesFactoryTest is Helper {
     }
 
     function test_getDeployedSwapSharesShouldReturnZeroAddressWhenNoSharesDeployed() external {
-        (address principalToken, address swapToken) = sharesFactory.poolShares(poolParams().toId());
+        MarketId poolId = corkPool.getId(poolParams());
+        (address principalToken, address swapToken) = sharesFactory.poolShares(poolId);
         assertEq(principalToken, address(0));
         assertEq(swapToken, address(0));
     }
@@ -153,13 +162,23 @@ contract SharesFactoryTest is Helper {
         address expectedSwapToken = vm.computeCreateAddress(address(sharesFactory), currentNonce + 1);
 
         // Deploy assets for first pool
-        Market memory pool1 = MarketLibrary.initialize(address(referenceAsset), address(collateralAsset), 100 days, rateOracle, DEFAULT_RATE_MIN, DEFAULT_RATE_MAX, DEFAULT_RATE_CHANGE_PER_DAY_MAX, DEFAULT_RATE_CHANGE_CAPACITY_MAX);
+        Market memory pool1 = Market({
+            collateralAsset: address(collateralAsset),
+            referenceAsset: address(referenceAsset),
+            expiryTimestamp: 100 days,
+            rateOracle: rateOracle,
+            rateMin: DEFAULT_RATE_MIN,
+            rateMax: DEFAULT_RATE_MAX,
+            rateChangePerDayMax: DEFAULT_RATE_CHANGE_PER_DAY_MAX,
+            rateChangeCapacityMax: DEFAULT_RATE_CHANGE_CAPACITY_MAX
+        });
+        MarketId pool1Id = MarketId.wrap(keccak256(abi.encode(pool1)));
         vm.startPrank(DEFAULT_ADDRESS);
-        testOracle.setRate(pool1.toId(), DEFAULT_ORACLE_RATE);
-        _createNewMarket(pool1, DEFAULT_BASE_REDEMPTION_FEE, DEFAULT_REVERSE_SWAP_FEE);
+        testOracle.setRate(pool1Id, DEFAULT_ORACLE_RATE);
+        _createNewPool(pool1, DEFAULT_BASE_REDEMPTION_FEE, DEFAULT_REVERSE_SWAP_FEE);
         vm.stopPrank();
 
-        (address principalToken, address swapToken) = sharesFactory.poolShares(pool1.toId());
+        (address principalToken, address swapToken) = sharesFactory.poolShares(pool1Id);
         assertEq(principalToken, expectedPrincipalToken);
         assertEq(swapToken, expectedSwapToken);
 
@@ -168,14 +187,24 @@ contract SharesFactoryTest is Helper {
         expectedSwapToken = vm.computeCreateAddress(address(sharesFactory), currentNonce + 1);
 
         // Deploy assets for second pool with different parameters
-        Market memory pool2 = MarketLibrary.initialize(address(referenceAsset), address(collateralAsset), 200 days, rateOracle, DEFAULT_RATE_MIN, DEFAULT_RATE_MAX, DEFAULT_RATE_CHANGE_PER_DAY_MAX, DEFAULT_RATE_CHANGE_CAPACITY_MAX);
+        Market memory pool2 = Market({
+            collateralAsset: address(collateralAsset),
+            referenceAsset: address(referenceAsset),
+            expiryTimestamp: 200 days,
+            rateOracle: rateOracle,
+            rateMin: DEFAULT_RATE_MIN,
+            rateMax: DEFAULT_RATE_MAX,
+            rateChangePerDayMax: DEFAULT_RATE_CHANGE_PER_DAY_MAX,
+            rateChangeCapacityMax: DEFAULT_RATE_CHANGE_CAPACITY_MAX
+        });
+        MarketId pool2Id = MarketId.wrap(keccak256(abi.encode(pool2)));
         vm.startPrank(DEFAULT_ADDRESS);
-        testOracle.setRate(pool2.toId(), DEFAULT_ORACLE_RATE);
-        _createNewMarket(pool2, DEFAULT_BASE_REDEMPTION_FEE, DEFAULT_REVERSE_SWAP_FEE);
+        testOracle.setRate(pool2Id, DEFAULT_ORACLE_RATE);
+        _createNewPool(pool2, DEFAULT_BASE_REDEMPTION_FEE, DEFAULT_REVERSE_SWAP_FEE);
         vm.stopPrank();
 
         // Get assets for second pool
-        (address ct2, address ds2) = sharesFactory.poolShares(pool2.toId());
+        (address ct2, address ds2) = sharesFactory.poolShares(pool2Id);
         assertEq(ct2, expectedPrincipalToken);
         assertEq(ds2, expectedSwapToken);
 
@@ -192,6 +221,7 @@ contract SharesFactoryTest is Helper {
         vm.expectRevert(abi.encodeWithSelector(IErrors.NotCorkPool.selector));
         sharesFactory.deployPoolShares(
             ISharesFactory.DeployParams({
+                poolId: poolId,
                 owner: DEFAULT_ADDRESS,
                 poolParams: Market({
                     collateralAsset: address(collateralAsset),
@@ -202,29 +232,7 @@ contract SharesFactoryTest is Helper {
                     rateChangePerDayMax: DEFAULT_RATE_CHANGE_PER_DAY_MAX,
                     rateChangeCapacityMax: DEFAULT_RATE_CHANGE_CAPACITY_MAX,
                     rateOracle: address(0)
-                }),
-                swapRate: DEFAULT_ORACLE_RATE
-            })
-        );
-    }
-
-    function test_DeploySwapSharesShouldRevertIfSwapRateIsZero() external {
-        vm.prank(address(corkPool));
-        vm.expectRevert(abi.encodeWithSelector(IErrors.InvalidRate.selector));
-        sharesFactory.deployPoolShares(
-            ISharesFactory.DeployParams({
-                owner: DEFAULT_ADDRESS,
-                poolParams: Market({
-                    collateralAsset: address(collateralAsset),
-                    referenceAsset: address(referenceAsset),
-                    expiryTimestamp: 100 days,
-                    rateMin: DEFAULT_RATE_MIN,
-                    rateMax: DEFAULT_RATE_MAX,
-                    rateChangePerDayMax: DEFAULT_RATE_CHANGE_PER_DAY_MAX,
-                    rateChangeCapacityMax: DEFAULT_RATE_CHANGE_CAPACITY_MAX,
-                    rateOracle: address(0)
-                }),
-                swapRate: 0
+                })
             })
         );
     }
@@ -243,17 +251,14 @@ contract SharesFactoryTest is Helper {
             rateChangeCapacityMax: DEFAULT_RATE_CHANGE_CAPACITY_MAX,
             rateOracle: address(0)
         });
-        MarketId poolId1 = pool1.toId();
+        MarketId poolId1 = MarketId.wrap(keccak256(abi.encode(pool1)));
 
         vm.prank(address(corkPool));
         vm.expectEmit(true, false, false, true);
         emit SharesDeployed(address(collateralAsset), expectedPrincipalToken, expectedSwapToken);
-        (address ct1, address ds1) = sharesFactory.deployPoolShares(ISharesFactory.DeployParams({poolParams: pool1, owner: DEFAULT_ADDRESS, swapRate: 1.23456 ether}));
+        (address ct1, address ds1) = sharesFactory.deployPoolShares(ISharesFactory.DeployParams({poolParams: pool1, owner: address(corkPool), poolId: poolId1}));
         assertEq(ct1, expectedPrincipalToken);
         assertEq(ds1, expectedSwapToken);
-
-        assertEq(PoolShare(ct1).swapRate(), 1.23456 ether);
-        assertEq(PoolShare(ds1).swapRate(), 1.23456 ether);
 
         assertEq(PoolShare(ct1).expiry(), 100 days);
         assertEq(PoolShare(ds1).expiry(), 100 days);
@@ -273,8 +278,8 @@ contract SharesFactoryTest is Helper {
         assertEq(address(PoolShare(ct1).poolManager()), address(corkPool));
         assertEq(address(PoolShare(ds1).poolManager()), address(corkPool));
 
-        assertEq(PoolShare(ct1).owner(), DEFAULT_ADDRESS);
-        assertEq(PoolShare(ds1).owner(), DEFAULT_ADDRESS);
+        assertEq(PoolShare(ct1).owner(), address(corkPool));
+        assertEq(PoolShare(ds1).owner(), address(corkPool));
 
         assertEq(PoolShare(ct1).totalSupply(), 0);
         assertEq(PoolShare(ds1).totalSupply(), 0);
@@ -361,14 +366,23 @@ contract SharesFactoryTest is Helper {
     //-----------------------------------------------------------------------------------------------------//
 
     function poolParams() internal returns (Market memory) {
-        return MarketLibrary.initialize(address(referenceAsset), address(collateralAsset), 100 days, rateOracle, DEFAULT_RATE_MIN, DEFAULT_RATE_MAX, DEFAULT_RATE_CHANGE_PER_DAY_MAX, DEFAULT_RATE_CHANGE_CAPACITY_MAX);
+        return Market({
+            collateralAsset: address(collateralAsset),
+            referenceAsset: address(referenceAsset),
+            expiryTimestamp: 100 days,
+            rateOracle: rateOracle,
+            rateMin: DEFAULT_RATE_MIN,
+            rateMax: DEFAULT_RATE_MAX,
+            rateChangePerDayMax: DEFAULT_RATE_CHANGE_PER_DAY_MAX,
+            rateChangeCapacityMax: DEFAULT_RATE_CHANGE_CAPACITY_MAX
+        });
     }
 
     function createPool() internal returns (MarketId _poolId) {
         Market memory poolParams = poolParams();
-        _poolId = poolParams.toId();
+        _poolId = MarketId.wrap(keccak256(abi.encode(poolParams)));
         vm.startPrank(DEFAULT_ADDRESS);
         testOracle.setRate(_poolId, DEFAULT_ORACLE_RATE);
-        _createNewMarket(poolParams, DEFAULT_BASE_REDEMPTION_FEE, DEFAULT_REVERSE_SWAP_FEE);
+        _createNewPool(poolParams, DEFAULT_BASE_REDEMPTION_FEE, DEFAULT_REVERSE_SWAP_FEE);
     }
 }

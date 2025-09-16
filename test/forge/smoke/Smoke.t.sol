@@ -5,7 +5,8 @@ import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IER
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {CorkConfig} from "contracts/core/CorkConfig.sol";
 import {CorkPool} from "contracts/core/CorkPool.sol";
-import {MarketId} from "contracts/libraries/Market.sol";
+import {IPoolManager} from "contracts/interfaces/IPoolManager.sol";
+import {Market, MarketId} from "contracts/libraries/Market.sol";
 import {TransferHelper} from "contracts/libraries/TransferHelper.sol";
 import {Test} from "forge-std/Test.sol";
 import {console} from "forge-std/console.sol";
@@ -191,7 +192,18 @@ contract SimulateScript is Test {
                 vm.startPrank(market.caller);
             }
 
-            MarketId marketId = corkPool.getId(market.referenceAsset, market.collateralAsset, market.expiryTimestamp, rateOracle, market.rateMin, market.rateMax, market.rateChangePerDayMax, market.rateChangeCapacityMax);
+            MarketId marketId = corkPool.getId(
+                Market({
+                    collateralAsset: market.collateralAsset,
+                    referenceAsset: market.referenceAsset,
+                    expiryTimestamp: market.expiryTimestamp,
+                    rateOracle: rateOracle,
+                    rateMin: market.rateMin,
+                    rateMax: market.rateMax,
+                    rateChangePerDayMax: market.rateChangePerDayMax,
+                    rateChangeCapacityMax: market.rateChangeCapacityMax
+                })
+            );
 
             (address principalToken, address swapToken) = corkPool.shares(marketId);
 
@@ -224,7 +236,7 @@ contract SimulateScript is Test {
         uint256 decimals = ERC20(swapToken).decimals();
         ERC20(swapToken).approve(address(corkPool), swapAmt * 10 ** decimals);
 
-        corkPool.exercise(marketId, 0, swapAmt, market.caller, 0, type(uint256).max);
+        corkPool.exercise(IPoolManager.ExerciseParams({poolId: marketId, shares: 0, compensation: swapAmt, receiver: market.caller, minAssetsOut: 0, maxOtherAssetSpent: type(uint256).max}));
     }
 
     function unwindDeposit(MarketObj memory market, MarketId marketId, uint256 swapAmt, address swapToken, address principalToken) public {

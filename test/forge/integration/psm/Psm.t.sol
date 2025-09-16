@@ -2,10 +2,12 @@ pragma solidity ^0.8.30;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {PoolShare} from "contracts/core/assets/PoolShare.sol";
-
 import {IErrors} from "contracts/interfaces/IErrors.sol";
-import {Market, MarketId, MarketLibrary} from "contracts/libraries/Market.sol";
+import {IPoolManager} from "contracts/interfaces/IPoolManager.sol";
+import {IUnwindSwap} from "contracts/interfaces/IUnwindSwap.sol";
+import {Market, MarketId} from "contracts/libraries/Market.sol";
 import {TransferHelper} from "contracts/libraries/TransferHelper.sol";
+import {IERC20Errors} from "openzeppelin-contracts/contracts/interfaces/draft-IERC6093.sol";
 import {Helper} from "test/forge/Helper.sol";
 import {ERC20Mock} from "test/mocks/ERC20Mock.sol";
 
@@ -23,14 +25,6 @@ contract CorkPoolTest is Helper {
 
     PoolShare internal swapToken;
     PoolShare internal principalToken;
-
-    struct PreviewUnwindSwapVars {
-        uint256 receivedReferenceAsset;
-        uint256 receivedSwapToken;
-        uint256 feePercentage;
-        uint256 fee;
-        uint256 swapRate;
-    }
 
     struct PreviewswapVars {
         uint256 collateralAsset;
@@ -53,7 +47,7 @@ contract CorkPoolTest is Helper {
 
     function setUp() public {
         vm.startPrank(DEFAULT_ADDRESS);
-        deployContracts(DEFAULT_ADDRESS, DEFAULT_ADDRESS);
+        deployContracts(DEFAULT_ADDRESS, DEFAULT_ADDRESS, DEFAULT_ADDRESS);
 
         (collateralAsset, referenceAsset,) = createMarket(EXPIRY, 1 ether);
 
@@ -119,7 +113,6 @@ contract CorkPoolTest is Helper {
 
     function testFuzz_deposit(uint8 raDecimals, uint8 paDecimals) external {
         (raDecimals, paDecimals) = setupDifferentDecimals(raDecimals, paDecimals);
-        vm.resetGasMetering();
 
         depositAmount = TransferHelper.normalizeDecimals(depositAmount, TARGET_DECIMALS, raDecimals);
 
@@ -167,7 +160,7 @@ contract CorkPoolTest is Helper {
 
         swapAmount = TransferHelper.normalizeDecimals(swapAmount, TARGET_DECIMALS, paDecimals);
 
-        (received,,) = corkPool.exercise(defaultCurrencyId, 0, swapAmount, DEFAULT_ADDRESS, 0, type(uint256).max);
+        (received,,) = corkPool.exercise(IPoolManager.ExerciseParams({poolId: defaultCurrencyId, shares: 0, compensation: swapAmount, receiver: DEFAULT_ADDRESS, minAssetsOut: 0, maxOtherAssetSpent: type(uint256).max}));
 
         uint256 expectedAmount = TransferHelper.normalizeDecimals(1 ether, TARGET_DECIMALS, raDecimals);
         uint256 acceptableDelta = TransferHelper.normalizeDecimals(1, TARGET_DECIMALS, raDecimals);
@@ -192,7 +185,7 @@ contract CorkPoolTest is Helper {
 
         swapAmount = TransferHelper.normalizeDecimals(swapAmount, TARGET_DECIMALS, paDecimals);
 
-        (received,,) = corkPool.exercise(defaultCurrencyId, 0, swapAmount, DEFAULT_ADDRESS, 0, type(uint256).max);
+        (received,,) = corkPool.exercise(IPoolManager.ExerciseParams({poolId: defaultCurrencyId, shares: 0, compensation: swapAmount, receiver: DEFAULT_ADDRESS, minAssetsOut: 0, maxOtherAssetSpent: type(uint256).max}));
         //forward to expiry
         uint256 expiry = swapToken.expiry();
         vm.warp(expiry + 1);
@@ -223,20 +216,20 @@ contract CorkPoolTest is Helper {
 
         swapAmount = TransferHelper.normalizeDecimals(swapAmount, TARGET_DECIMALS, paDecimals);
 
-        (received,,) = corkPool.exercise(defaultCurrencyId, 0, swapAmount, DEFAULT_ADDRESS, 0, type(uint256).max);
+        (received,,) = corkPool.exercise(IPoolManager.ExerciseParams({poolId: defaultCurrencyId, shares: 0, compensation: swapAmount, receiver: DEFAULT_ADDRESS, minAssetsOut: 0, maxOtherAssetSpent: type(uint256).max}));
 
         // and weunwindSwap half of the swaped amount
         uint256 unwindSwapAmount = 0.25 ether * rate / 1 ether;
 
         uint256 adjustedunwindSwapAmount = TransferHelper.normalizeDecimals(unwindSwapAmount, TARGET_DECIMALS, raDecimals);
 
-        (uint256 receivedReferenceAsset, uint256 receivedSwapToken,,,) = corkPool.unwindSwap(defaultCurrencyId, adjustedunwindSwapAmount, DEFAULT_ADDRESS);
+        IUnwindSwap.UnwindSwapReturnParams memory unwindReturnParams = corkPool.unwindSwap(defaultCurrencyId, adjustedunwindSwapAmount, DEFAULT_ADDRESS);
 
         uint256 expectedAmount = TransferHelper.normalizeDecimals(0.25 ether, TARGET_DECIMALS, paDecimals);
         uint256 acceptableDelta = TransferHelper.normalizeDecimals(1, TARGET_DECIMALS, paDecimals);
 
-        vm.assertApproxEqAbs(receivedReferenceAsset, expectedAmount, acceptableDelta);
-        vm.assertApproxEqAbs(receivedSwapToken, unwindSwapAmount, acceptableDelta);
+        vm.assertApproxEqAbs(unwindReturnParams.receivedReferenceAsset, expectedAmount, acceptableDelta);
+        vm.assertApproxEqAbs(unwindReturnParams.receivedSwapToken, unwindSwapAmount, acceptableDelta);
     }
 
     function testFuzz_swapPrincipalTokenSwapToken(uint8 raDecimals, uint8 paDecimals) external {
@@ -288,7 +281,7 @@ contract CorkPoolTest is Helper {
         referenceAsset.approve(address(corkPool), 20_000 ether);
 
         vm.expectRevert(abi.encodeWithSelector(IErrors.InsufficientLiquidity.selector, 1 ether, 9900 ether));
-        corkPool.exercise(defaultCurrencyId, 0, 10_000 ether, user2, 0, type(uint256).max);
+        corkPool.exercise(IPoolManager.ExerciseParams({poolId: defaultCurrencyId, shares: 0, compensation: 10_000 ether, receiver: user2, minAssetsOut: 0, maxOtherAssetSpent: type(uint256).max}));
         vm.stopPrank();
     }
 
@@ -302,15 +295,13 @@ contract CorkPoolTest is Helper {
         referenceAsset.approve(address(corkPool), type(uint256).max);
         swapToken.approve(address(corkPool), type(uint256).max);
 
-        corkPool.exercise(defaultCurrencyId, 0, swapAmount, DEFAULT_ADDRESS, 0, type(uint256).max);
+        corkPool.exercise(IPoolManager.ExerciseParams({poolId: defaultCurrencyId, shares: 0, compensation: swapAmount, receiver: DEFAULT_ADDRESS, minAssetsOut: 0, maxOtherAssetSpent: type(uint256).max}));
 
         BalanceSnapshot memory beforeBalances = BalanceSnapshot({collateralAsset: collateralAsset.balanceOf(DEFAULT_ADDRESS), referenceAsset: referenceAsset.balanceOf(DEFAULT_ADDRESS), swapToken: swapToken.balanceOf(DEFAULT_ADDRESS), principalToken: principalToken.balanceOf(DEFAULT_ADDRESS)});
 
-        PreviewUnwindSwapVars memory preview;
-        (preview.receivedReferenceAsset, preview.receivedSwapToken, preview.feePercentage, preview.fee, preview.swapRate) = corkPool.previewUnwindSwap(defaultCurrencyId, unwindSwapAmount);
+        IUnwindSwap.UnwindSwapReturnParams memory preview = corkPool.previewUnwindSwap(defaultCurrencyId, unwindSwapAmount);
 
-        PreviewUnwindSwapVars memory actual;
-        (actual.receivedReferenceAsset, actual.receivedSwapToken, actual.feePercentage, actual.fee, actual.swapRate) = corkPool.unwindSwap(defaultCurrencyId, unwindSwapAmount, DEFAULT_ADDRESS);
+        IUnwindSwap.UnwindSwapReturnParams memory actual = corkPool.unwindSwap(defaultCurrencyId, unwindSwapAmount, DEFAULT_ADDRESS);
 
         BalanceSnapshot memory afterBalances = BalanceSnapshot({collateralAsset: collateralAsset.balanceOf(DEFAULT_ADDRESS), referenceAsset: referenceAsset.balanceOf(DEFAULT_ADDRESS), swapToken: swapToken.balanceOf(DEFAULT_ADDRESS), principalToken: principalToken.balanceOf(DEFAULT_ADDRESS)});
 
@@ -339,7 +330,7 @@ contract CorkPoolTest is Helper {
         preview.rate = corkPool.swapRate(defaultCurrencyId);
 
         PreviewswapVars memory actual;
-        (actual.collateralAsset, actual.swapToken, actual.fee) = corkPool.exercise(defaultCurrencyId, 0, swapAmount, DEFAULT_ADDRESS, 0, type(uint256).max);
+        (actual.collateralAsset, actual.swapToken, actual.fee) = corkPool.exercise(IPoolManager.ExerciseParams({poolId: defaultCurrencyId, shares: 0, compensation: swapAmount, receiver: DEFAULT_ADDRESS, minAssetsOut: 0, maxOtherAssetSpent: type(uint256).max}));
         actual.rate = corkPool.swapRate(defaultCurrencyId);
 
         BalanceSnapshot memory afterBalances = BalanceSnapshot({collateralAsset: collateralAsset.balanceOf(DEFAULT_ADDRESS), referenceAsset: referenceAsset.balanceOf(DEFAULT_ADDRESS), swapToken: swapToken.balanceOf(DEFAULT_ADDRESS), principalToken: principalToken.balanceOf(DEFAULT_ADDRESS)});
@@ -496,12 +487,14 @@ contract CorkPoolTest is Helper {
 
         // Exercise as user2 (sender/owner) and sending to DEFAULT_ADDRESS (receiver)
         (uint256 assets, uint256 otherAssetSpent, uint256 fee) = corkPool.exercise(
-            defaultCurrencyId,
-            sharesAmount, // shares input
-            0, // compensation = 0 for shares mode
-            DEFAULT_ADDRESS, // receiver (assets go to DEFAULT_ADDRESS)
-            0, // minAssetsOut
-            type(uint256).max // maxOtherAssetSpent
+            IPoolManager.ExerciseParams({
+                poolId: defaultCurrencyId,
+                shares: sharesAmount, // shares input
+                compensation: 0, // compensation = 0 for shares mode
+                receiver: DEFAULT_ADDRESS, // receiver (assets go to DEFAULT_ADDRESS)
+                minAssetsOut: 0, // minAssetsOut
+                maxOtherAssetSpent: type(uint256).max // maxOtherAssetSpent
+            })
         );
         vm.stopPrank();
 
@@ -539,12 +532,14 @@ contract CorkPoolTest is Helper {
 
         // Exercise as user2 (sender/owner) and sending to DEFAULT_ADDRESS (receiver)
         (uint256 assets, uint256 otherAssetSpent, uint256 fee) = corkPool.exercise(
-            defaultCurrencyId,
-            0, // shares = 0 for compensation mode
-            compensationAmount, // compensation input
-            DEFAULT_ADDRESS, // receiver (assets go to DEFAULT_ADDRESS)
-            0, // minAssetsOut
-            type(uint256).max // maxOtherAssetSpent
+            IPoolManager.ExerciseParams({
+                poolId: defaultCurrencyId,
+                shares: 0, // shares = 0 for compensation mode
+                compensation: compensationAmount, // compensation input
+                receiver: DEFAULT_ADDRESS, // receiver (assets go to DEFAULT_ADDRESS)
+                minAssetsOut: 0, // minAssetsOut
+                maxOtherAssetSpent: type(uint256).max // maxOtherAssetSpent
+            })
         );
         vm.stopPrank();
 
@@ -574,12 +569,14 @@ contract CorkPoolTest is Helper {
 
         // Exercise in shares mode (shares > 0, compensation = 0)
         (uint256 assets, uint256 otherAssetSpent, uint256 fee) = corkPool.exercise(
-            defaultCurrencyId,
-            sharesAmount, // shares input
-            0, // compensation = 0 for shares mode
-            DEFAULT_ADDRESS, // receiver
-            0, // minAssetsOut
-            type(uint256).max // maxOtherAssetSpent
+            IPoolManager.ExerciseParams({
+                poolId: defaultCurrencyId,
+                shares: sharesAmount, // shares input
+                compensation: 0, // compensation = 0 for shares mode
+                receiver: DEFAULT_ADDRESS, // receiver
+                minAssetsOut: 0, // minAssetsOut
+                maxOtherAssetSpent: type(uint256).max // maxOtherAssetSpent
+            })
         );
 
         // Verify results
@@ -598,12 +595,14 @@ contract CorkPoolTest is Helper {
 
         // Exercise in compensation mode (shares = 0, compensation > 0)
         (uint256 assets, uint256 otherAssetSpent, uint256 fee) = corkPool.exercise(
-            defaultCurrencyId,
-            0, // shares = 0 for compensation mode
-            compensationAmount, // compensation input
-            DEFAULT_ADDRESS, // receiver
-            0, // minAssetsOut
-            type(uint256).max // maxOtherAssetSpent
+            IPoolManager.ExerciseParams({
+                poolId: defaultCurrencyId,
+                shares: 0, // shares = 0 for compensation mode
+                compensation: compensationAmount, // compensation input
+                receiver: DEFAULT_ADDRESS, // receiver
+                minAssetsOut: 0, // minAssetsOut
+                maxOtherAssetSpent: type(uint256).max // maxOtherAssetSpent
+            })
         );
 
         // Verify results
@@ -673,12 +672,14 @@ contract CorkPoolTest is Helper {
 
         // Should be able to exercise the max amount without reverting
         (uint256 assets, uint256 otherAssetSpent, uint256 fee) = corkPool.exercise(
-            defaultCurrencyId,
-            maxShares, // use max shares
-            0, // compensation = 0 for shares mode
-            DEFAULT_ADDRESS, // receiver
-            0, // minAssetsOut
-            type(uint256).max // maxOtherAssetSpent
+            IPoolManager.ExerciseParams({
+                poolId: defaultCurrencyId,
+                shares: maxShares, // use max shares
+                compensation: 0, // compensation = 0 for shares mode
+                receiver: DEFAULT_ADDRESS, // receiver
+                minAssetsOut: 0, // minAssetsOut
+                maxOtherAssetSpent: type(uint256).max // maxOtherAssetSpent
+            })
         );
 
         // Verify the exercise succeeded
@@ -704,7 +705,7 @@ contract CorkPoolTest is Helper {
         uint256 userCstBefore = swapToken.balanceOf(DEFAULT_ADDRESS);
 
         // Execute swap
-        (uint256 shares, uint256 compensation) = corkPool.swap(
+        (uint256 shares, uint256 compensation, uint256 fee) = corkPool.swap(
             defaultCurrencyId,
             desiredAssets,
             DEFAULT_ADDRESS // receiver
@@ -744,7 +745,7 @@ contract CorkPoolTest is Helper {
         uint256 defaultCaBefore = collateralAsset.balanceOf(DEFAULT_ADDRESS);
 
         // Execute swap as user2 (sender/owner) sending assets to DEFAULT_ADDRESS (receiver)
-        (uint256 shares, uint256 compensation) = corkPool.swap(
+        (uint256 shares, uint256 compensation, uint256 fee) = corkPool.swap(
             defaultCurrencyId,
             desiredAssets,
             DEFAULT_ADDRESS // receiver (assets go to DEFAULT_ADDRESS)
@@ -824,7 +825,7 @@ contract CorkPoolTest is Helper {
         uint256 desiredAssets = depositAmount / 2;
 
         // Execute swap
-        (uint256 shares, uint256 compensation) = corkPool.swap(defaultCurrencyId, desiredAssets, DEFAULT_ADDRESS);
+        (uint256 shares, uint256 compensation, uint256 fee) = corkPool.swap(defaultCurrencyId, desiredAssets, DEFAULT_ADDRESS);
 
         // Verify results
         assertGt(shares, 0, "Should lock CST shares");
@@ -855,7 +856,7 @@ contract CorkPoolTest is Helper {
         uint256 desiredAssets = depositAmount / 4;
 
         // Execute swap
-        (uint256 shares, uint256 compensation) = corkPool.swap(defaultCurrencyId, desiredAssets, DEFAULT_ADDRESS);
+        (uint256 shares, uint256 compensation, uint256 fee) = corkPool.swap(defaultCurrencyId, desiredAssets, DEFAULT_ADDRESS);
 
         // Verify results
         assertGt(shares, 0, "Should lock CST shares");
@@ -887,12 +888,14 @@ contract CorkPoolTest is Helper {
 
         // Exercise in shares mode (shares > 0, compensation = 0)
         (uint256 assets, uint256 otherAssetSpent, uint256 fee) = corkPool.exercise(
-            defaultCurrencyId,
-            sharesToExercise, // shares input
-            0, // compensation = 0 for shares mode
-            DEFAULT_ADDRESS, // receiver
-            0, // minAssetsOut
-            type(uint256).max // maxOtherAssetSpent
+            IPoolManager.ExerciseParams({
+                poolId: defaultCurrencyId,
+                shares: sharesToExercise, // shares input
+                compensation: 0, // compensation = 0 for shares mode
+                receiver: DEFAULT_ADDRESS, // receiver
+                minAssetsOut: 0, // minAssetsOut
+                maxOtherAssetSpent: type(uint256).max // maxOtherAssetSpent
+            })
         );
 
         // Verify results
@@ -920,12 +923,14 @@ contract CorkPoolTest is Helper {
 
         // Exercise in shares mode (shares > 0, compensation = 0)
         (uint256 assets, uint256 otherAssetSpent, uint256 fee) = corkPool.exercise(
-            defaultCurrencyId,
-            sharesToExercise, // shares input
-            0, // compensation = 0 for shares mode
-            DEFAULT_ADDRESS, // receiver
-            0, // minAssetsOut
-            type(uint256).max // maxOtherAssetSpent
+            IPoolManager.ExerciseParams({
+                poolId: defaultCurrencyId,
+                shares: sharesToExercise, // shares input
+                compensation: 0, // compensation = 0 for shares mode
+                receiver: DEFAULT_ADDRESS, // receiver
+                minAssetsOut: 0, // minAssetsOut
+                maxOtherAssetSpent: type(uint256).max // maxOtherAssetSpent
+            })
         );
 
         // Verify results
@@ -952,12 +957,14 @@ contract CorkPoolTest is Helper {
 
         // Exercise in compensation mode (shares = 0, compensation > 0)
         (uint256 assets, uint256 otherAssetSpent, uint256 fee) = corkPool.exercise(
-            defaultCurrencyId,
-            0, // shares = 0 for compensation mode
-            compensationAmount, // compensation input
-            DEFAULT_ADDRESS, // receiver
-            0, // minAssetsOut
-            type(uint256).max // maxOtherAssetSpent
+            IPoolManager.ExerciseParams({
+                poolId: defaultCurrencyId,
+                shares: 0, // shares = 0 for compensation mode
+                compensation: compensationAmount, // compensation input
+                receiver: DEFAULT_ADDRESS, // receiver
+                minAssetsOut: 0, // minAssetsOut
+                maxOtherAssetSpent: type(uint256).max // maxOtherAssetSpent
+            })
         );
 
         // Verify results
@@ -991,12 +998,14 @@ contract CorkPoolTest is Helper {
 
         // Should be able to exercise the max amount without reverting
         (uint256 assets, uint256 otherAssetSpent, uint256 fee) = corkPool.exercise(
-            defaultCurrencyId,
-            maxShares, // use max shares
-            0, // compensation = 0 for shares mode
-            DEFAULT_ADDRESS, // receiver
-            0, // minAssetsOut
-            type(uint256).max // maxOtherAssetSpent
+            IPoolManager.ExerciseParams({
+                poolId: defaultCurrencyId,
+                shares: maxShares, // use max shares
+                compensation: 0, // compensation = 0 for shares mode
+                receiver: DEFAULT_ADDRESS, // receiver
+                minAssetsOut: 0, // minAssetsOut
+                maxOtherAssetSpent: type(uint256).max // maxOtherAssetSpent
+            })
         );
 
         // Verify the exercise succeeded
@@ -1005,6 +1014,32 @@ contract CorkPoolTest is Helper {
 
         // User should have no CST tokens left
         assertEq(swapToken.balanceOf(DEFAULT_ADDRESS), 0, "Should have no CST tokens left after max exercise");
+    }
+
+    function testUnwindDepositShouldFailWhenSenderDoesNotHaveAllowance() external {
+        vm.startPrank(DEFAULT_ADDRESS);
+        uint256 depositAmount = 10 ether;
+        // deposit
+        corkPool.deposit(defaultCurrencyId, depositAmount, DEFAULT_ADDRESS);
+
+        address randomPerson = address(0x333);
+        vm.startPrank(randomPerson);
+
+        vm.expectRevert(abi.encodeWithSelector(IERC20Errors.ERC20InsufficientAllowance.selector, randomPerson, 0, depositAmount));
+        corkPool.unwindDeposit(defaultCurrencyId, depositAmount, DEFAULT_ADDRESS, randomPerson);
+    }
+
+    function testUnwindMintShouldFailWhenSenderDoesNotHaveAllowance() external {
+        vm.startPrank(DEFAULT_ADDRESS);
+        uint256 depositAmount = 10 ether;
+        // deposit
+        corkPool.deposit(defaultCurrencyId, depositAmount, DEFAULT_ADDRESS);
+
+        address randomPerson = address(0x333);
+        vm.startPrank(randomPerson);
+
+        vm.expectRevert(abi.encodeWithSelector(IERC20Errors.ERC20InsufficientAllowance.selector, randomPerson, 0, depositAmount));
+        corkPool.unwindMint(defaultCurrencyId, depositAmount, DEFAULT_ADDRESS, randomPerson);
     }
 
     function defaultSwapRate() internal pure returns (uint256) {

@@ -2,6 +2,7 @@
 pragma solidity ^0.8.30;
 
 import {PoolShare} from "contracts/core/assets/PoolShare.sol";
+import {ICorkPoolAdapter} from "contracts/interfaces/ICorkPoolAdapter.sol";
 import {CorkPoolAdapter} from "contracts/periphery/CorkPoolAdapter.sol";
 import "contracts/periphery/bundler3/libraries/ErrorsLib.sol";
 import {Helper} from "test/forge/Helper.sol";
@@ -20,7 +21,7 @@ contract CorkPoolAdapterExerciseTest is Helper {
 
     function setUp() public {
         vm.startPrank(DEFAULT_ADDRESS);
-        deployContracts(DEFAULT_ADDRESS, DEFAULT_ADDRESS);
+        deployContracts(DEFAULT_ADDRESS, DEFAULT_ADDRESS, DEFAULT_ADDRESS);
         deployPeriphery();
         vm.stopPrank();
     }
@@ -93,7 +94,18 @@ contract CorkPoolAdapterExerciseTest is Helper {
         uint256 adapterRefTokenBefore = referenceAsset.balanceOf(address(corkPoolAdapter));
 
         // Execute exercise
-        corkPoolAdapter.safeExercise(defaultCurrencyId, sharesToExercise, compensationToExercise, address(corkPoolAdapter), RECEIVER, minAssetsOut, maxOtherAssetSpent, block.timestamp + 1 hours);
+        corkPoolAdapter.safeExercise(
+            ICorkPoolAdapter.SafeExerciseParams({
+                poolId: defaultCurrencyId,
+                cstShares: sharesToExercise,
+                referenceAssets: compensationToExercise,
+                owner: address(corkPoolAdapter),
+                receiver: RECEIVER,
+                minCollateralAssetsOut: minAssetsOut,
+                maxOtherTokenIn: maxOtherAssetSpent,
+                deadline: block.timestamp + 1 hours
+            })
+        );
 
         // Verify results using scoped variables
         {
@@ -141,7 +153,18 @@ contract CorkPoolAdapterExerciseTest is Helper {
         uint256 adapterRefTokenBefore = referenceAsset.balanceOf(address(corkPoolAdapter));
 
         // Execute exercise
-        corkPoolAdapter.safeExercise(defaultCurrencyId, sharesToExercise, compensationToExercise, address(corkPoolAdapter), RECEIVER, minAssetsOut, maxOtherAssetSpent, block.timestamp + 1 hours);
+        corkPoolAdapter.safeExercise(
+            ICorkPoolAdapter.SafeExerciseParams({
+                poolId: defaultCurrencyId,
+                cstShares: sharesToExercise,
+                referenceAssets: compensationToExercise,
+                owner: address(corkPoolAdapter),
+                receiver: RECEIVER,
+                minCollateralAssetsOut: minAssetsOut,
+                maxOtherTokenIn: maxOtherAssetSpent,
+                deadline: block.timestamp + 1 hours
+            })
+        );
 
         // Verify results using scoped variables
         {
@@ -170,7 +193,18 @@ contract CorkPoolAdapterExerciseTest is Helper {
         uint256 maxOtherAssetSpent = 100e18;
 
         vm.expectRevert(ErrorsLib.DeadlineExceeded.selector);
-        corkPoolAdapter.safeExercise(defaultCurrencyId, sharesToExercise, compensationToExercise, address(corkPoolAdapter), RECEIVER, minAssetsOut, maxOtherAssetSpent, block.timestamp - 1);
+        corkPoolAdapter.safeExercise(
+            ICorkPoolAdapter.SafeExerciseParams({
+                poolId: defaultCurrencyId,
+                cstShares: sharesToExercise,
+                referenceAssets: compensationToExercise,
+                owner: address(corkPoolAdapter),
+                receiver: RECEIVER,
+                minCollateralAssetsOut: minAssetsOut,
+                maxOtherTokenIn: maxOtherAssetSpent,
+                deadline: block.timestamp - 1
+            })
+        );
 
         vm.stopPrank();
     }
@@ -185,7 +219,18 @@ contract CorkPoolAdapterExerciseTest is Helper {
         uint256 maxOtherAssetSpent = 100e18;
 
         vm.expectRevert(ErrorsLib.ZeroAddress.selector);
-        corkPoolAdapter.safeExercise(defaultCurrencyId, sharesToExercise, compensationToExercise, address(corkPoolAdapter), address(0), minAssetsOut, maxOtherAssetSpent, block.timestamp + 1 hours);
+        corkPoolAdapter.safeExercise(
+            ICorkPoolAdapter.SafeExerciseParams({
+                poolId: defaultCurrencyId,
+                cstShares: sharesToExercise,
+                referenceAssets: compensationToExercise,
+                owner: address(corkPoolAdapter),
+                receiver: address(0),
+                minCollateralAssetsOut: minAssetsOut,
+                maxOtherTokenIn: maxOtherAssetSpent,
+                deadline: block.timestamp + 1 hours
+            })
+        );
 
         vm.stopPrank();
     }
@@ -200,7 +245,9 @@ contract CorkPoolAdapterExerciseTest is Helper {
         uint256 maxOtherAssetSpent = 100e18;
 
         vm.expectRevert();
-        corkPoolAdapter.safeExercise(defaultCurrencyId, sharesToExercise, compensationToExercise, address(0), RECEIVER, minAssetsOut, maxOtherAssetSpent, block.timestamp + 1 hours);
+        corkPoolAdapter.safeExercise(
+            ICorkPoolAdapter.SafeExerciseParams({poolId: defaultCurrencyId, cstShares: sharesToExercise, referenceAssets: compensationToExercise, owner: address(0), receiver: RECEIVER, minCollateralAssetsOut: minAssetsOut, maxOtherTokenIn: maxOtherAssetSpent, deadline: block.timestamp + 1 hours})
+        );
 
         vm.stopPrank();
     }
@@ -215,7 +262,18 @@ contract CorkPoolAdapterExerciseTest is Helper {
         uint256 maxOtherAssetSpent = 100e18;
 
         vm.expectRevert(ErrorsLib.ZeroShares.selector);
-        corkPoolAdapter.safeExercise(defaultCurrencyId, sharesToExercise, compensationToExercise, address(corkPoolAdapter), RECEIVER, minAssetsOut, maxOtherAssetSpent, block.timestamp + 1 hours);
+        corkPoolAdapter.safeExercise(
+            ICorkPoolAdapter.SafeExerciseParams({
+                poolId: defaultCurrencyId,
+                cstShares: sharesToExercise,
+                referenceAssets: compensationToExercise,
+                owner: address(corkPoolAdapter),
+                receiver: RECEIVER,
+                minCollateralAssetsOut: minAssetsOut,
+                maxOtherTokenIn: maxOtherAssetSpent,
+                deadline: block.timestamp + 1 hours
+            })
+        );
 
         vm.stopPrank();
     }
@@ -230,7 +288,18 @@ contract CorkPoolAdapterExerciseTest is Helper {
         uint256 maxOtherAssetSpent = 100e18;
 
         vm.expectRevert(ErrorsLib.ZeroShares.selector);
-        corkPoolAdapter.safeExercise(defaultCurrencyId, sharesToExercise, compensationToExercise, address(corkPoolAdapter), RECEIVER, minAssetsOut, maxOtherAssetSpent, block.timestamp + 1 hours);
+        corkPoolAdapter.safeExercise(
+            ICorkPoolAdapter.SafeExerciseParams({
+                poolId: defaultCurrencyId,
+                cstShares: sharesToExercise,
+                referenceAssets: compensationToExercise,
+                owner: address(corkPoolAdapter),
+                receiver: RECEIVER,
+                minCollateralAssetsOut: minAssetsOut,
+                maxOtherTokenIn: maxOtherAssetSpent,
+                deadline: block.timestamp + 1 hours
+            })
+        );
 
         vm.stopPrank();
     }
@@ -252,7 +321,18 @@ contract CorkPoolAdapterExerciseTest is Helper {
         vm.startPrank(DEFAULT_ADDRESS);
 
         vm.expectRevert(ErrorsLib.SlippageExceeded.selector);
-        corkPoolAdapter.safeExercise(defaultCurrencyId, sharesToExercise, compensationToExercise, address(corkPoolAdapter), RECEIVER, minAssetsOut, maxOtherAssetSpent, block.timestamp + 1 hours);
+        corkPoolAdapter.safeExercise(
+            ICorkPoolAdapter.SafeExerciseParams({
+                poolId: defaultCurrencyId,
+                cstShares: sharesToExercise,
+                referenceAssets: compensationToExercise,
+                owner: address(corkPoolAdapter),
+                receiver: RECEIVER,
+                minCollateralAssetsOut: minAssetsOut,
+                maxOtherTokenIn: maxOtherAssetSpent,
+                deadline: block.timestamp + 1 hours
+            })
+        );
 
         vm.stopPrank();
     }
@@ -274,7 +354,18 @@ contract CorkPoolAdapterExerciseTest is Helper {
         vm.startPrank(DEFAULT_ADDRESS);
 
         vm.expectRevert(ErrorsLib.SlippageExceeded.selector);
-        corkPoolAdapter.safeExercise(defaultCurrencyId, sharesToExercise, compensationToExercise, address(corkPoolAdapter), RECEIVER, minAssetsOut, maxOtherAssetSpent, block.timestamp + 1 hours);
+        corkPoolAdapter.safeExercise(
+            ICorkPoolAdapter.SafeExerciseParams({
+                poolId: defaultCurrencyId,
+                cstShares: sharesToExercise,
+                referenceAssets: compensationToExercise,
+                owner: address(corkPoolAdapter),
+                receiver: RECEIVER,
+                minCollateralAssetsOut: minAssetsOut,
+                maxOtherTokenIn: maxOtherAssetSpent,
+                deadline: block.timestamp + 1 hours
+            })
+        );
 
         vm.stopPrank();
     }
@@ -289,6 +380,17 @@ contract CorkPoolAdapterExerciseTest is Helper {
 
         vm.prank(address(0x999));
         vm.expectRevert(ErrorsLib.UnauthorizedSender.selector);
-        corkPoolAdapter.safeExercise(defaultCurrencyId, sharesToExercise, compensationToExercise, address(corkPoolAdapter), RECEIVER, minAssetsOut, maxOtherAssetSpent, block.timestamp + 1 hours);
+        corkPoolAdapter.safeExercise(
+            ICorkPoolAdapter.SafeExerciseParams({
+                poolId: defaultCurrencyId,
+                cstShares: sharesToExercise,
+                referenceAssets: compensationToExercise,
+                owner: address(corkPoolAdapter),
+                receiver: RECEIVER,
+                minCollateralAssetsOut: minAssetsOut,
+                maxOtherTokenIn: maxOtherAssetSpent,
+                deadline: block.timestamp + 1 hours
+            })
+        );
     }
 }

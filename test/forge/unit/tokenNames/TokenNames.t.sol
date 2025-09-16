@@ -9,7 +9,7 @@ contract TokenName is Helper {
         // saturday, June 3, 2000 1:07:47 PM
         // 06/03/2000 @ 1:07:47pm
         vm.warp(960_037_567);
-        deployContracts(DEFAULT_ADDRESS, DEFAULT_ADDRESS);
+        deployContracts(DEFAULT_ADDRESS, DEFAULT_ADDRESS, DEFAULT_ADDRESS);
         createMarket(block.timestamp + 100);
     }
 

@@ -7,7 +7,7 @@ import {CorkPool} from "contracts/core/CorkPool.sol";
 import {IPoolManager} from "contracts/interfaces/IPoolManager.sol";
 import {IUnwindSwap} from "contracts/interfaces/IUnwindSwap.sol";
 import {Initialize} from "contracts/interfaces/Initialize.sol";
-import {Market, MarketId, MarketLibrary} from "contracts/libraries/Market.sol";
+import {Market, MarketId} from "contracts/libraries/Market.sol";
 import {Helper} from "test/forge/Helper.sol";
 import {ERC20Mock} from "test/mocks/ERC20Mock.sol";
 
@@ -41,7 +41,7 @@ contract ReentrancyAttacker {
             target.unwindSwap(marketId, 1 ether, address(this));
         } else if (attackType == 3) {
             // Attack exercise
-            target.exercise(marketId, 1 ether, 0, address(this), 0, type(uint256).max);
+            target.exercise(IPoolManager.ExerciseParams({poolId: marketId, shares: 1 ether, compensation: 0, receiver: address(this), minAssetsOut: 0, maxOtherAssetSpent: type(uint256).max}));
         } else if (attackType == 4) {
             // Attack redeem
             target.redeem(marketId, 1 ether, address(this), address(this));
@@ -53,7 +53,7 @@ contract ReentrancyAttacker {
             target.swap(marketId, 1 ether, address(this));
         } else if (attackType == 7) {
             // Attack withdraw
-            target.withdraw(marketId, 1 ether, 0, address(this), address(this));
+            target.withdraw(IPoolManager.WithdrawParams({poolId: marketId, collateralAssetOut: 1 ether, referenceAssetOut: 0, owner: address(this), receiver: address(this)}));
         } else if (attackType == 8) {
             // Attack mint
             target.mint(marketId, 1 ether, address(this));
@@ -62,7 +62,7 @@ contract ReentrancyAttacker {
             target.unwindDeposit(marketId, 1 ether, address(this), address(this));
         } else if (attackType == 10) {
             // Attack unwindExercise
-            target.unwindExercise(marketId, 1 ether, address(this), 0, type(uint256).max);
+            target.unwindExercise(IPoolManager.UnwindExerciseParams({poolId: marketId, shares: 1 ether, receiver: address(this), minCompensationOut: 0, maxAssetsIn: type(uint256).max}));
         }
     }
 
@@ -73,14 +73,14 @@ contract ReentrancyAttacker {
 
             if (attackType == 1) target.deposit(marketId, 1 ether, address(this));
             else if (attackType == 2) target.unwindSwap(marketId, 1 ether, address(this));
-            else if (attackType == 3) target.exercise(marketId, 1 ether, 1 ether, address(this), 0, type(uint256).max);
+            else if (attackType == 3) target.exercise(IPoolManager.ExerciseParams({poolId: marketId, shares: 1 ether, compensation: 1 ether, receiver: address(this), minAssetsOut: 0, maxOtherAssetSpent: type(uint256).max}));
             else if (attackType == 4) target.redeem(marketId, 1 ether, address(this), address(this));
             else if (attackType == 5) target.unwindMint(marketId, 1 ether, address(this), address(this));
             else if (attackType == 6) target.swap(marketId, 1 ether, address(this));
-            else if (attackType == 7) target.withdraw(marketId, 1 ether, 0, address(this), address(this));
+            else if (attackType == 7) target.withdraw(IPoolManager.WithdrawParams({poolId: marketId, collateralAssetOut: 1 ether, referenceAssetOut: 0, owner: address(this), receiver: address(this)}));
             else if (attackType == 8) target.mint(marketId, 1 ether, address(this));
             else if (attackType == 9) target.unwindDeposit(marketId, 1 ether, address(this), address(this));
-            else if (attackType == 10) target.unwindExercise(marketId, 1 ether, address(this), 0, type(uint256).max);
+            else if (attackType == 10) target.unwindExercise(IPoolManager.UnwindExerciseParams({poolId: marketId, shares: 1 ether, receiver: address(this), minCompensationOut: 0, maxAssetsIn: type(uint256).max}));
         }
     }
 
@@ -91,14 +91,14 @@ contract ReentrancyAttacker {
 
             if (attackType == 1) target.deposit(marketId, 1 ether, address(this));
             else if (attackType == 2) target.unwindSwap(marketId, 1 ether, address(this));
-            else if (attackType == 3) target.exercise(marketId, 1 ether, 1 ether, address(this), 0, type(uint256).max);
+            else if (attackType == 3) target.exercise(IPoolManager.ExerciseParams({poolId: marketId, shares: 1 ether, compensation: 1 ether, receiver: address(this), minAssetsOut: 0, maxOtherAssetSpent: type(uint256).max}));
             else if (attackType == 4) target.redeem(marketId, 1 ether, address(this), address(this));
             else if (attackType == 5) target.unwindMint(marketId, 1 ether, address(this), address(this));
             else if (attackType == 6) target.swap(marketId, 1 ether, address(this));
-            else if (attackType == 7) target.withdraw(marketId, 1 ether, 0, address(this), address(this));
+            else if (attackType == 7) target.withdraw(IPoolManager.WithdrawParams({poolId: marketId, collateralAssetOut: 1 ether, referenceAssetOut: 0, owner: address(this), receiver: address(this)}));
             else if (attackType == 8) target.mint(marketId, 1 ether, address(this));
             else if (attackType == 9) target.unwindDeposit(marketId, 1 ether, address(this), address(this));
-            else if (attackType == 10) target.unwindExercise(marketId, 1 ether, address(this), 0, type(uint256).max);
+            else if (attackType == 10) target.unwindExercise(IPoolManager.UnwindExerciseParams({poolId: marketId, shares: 1 ether, receiver: address(this), minCompensationOut: 0, maxAssetsIn: type(uint256).max}));
         }
     }
 }
@@ -175,7 +175,7 @@ contract CorkPoolReentrancyTest is Helper {
         user = address(0x1234);
 
         vm.startPrank(DEFAULT_ADDRESS);
-        deployContracts(DEFAULT_ADDRESS, DEFAULT_ADDRESS);
+        deployContracts(DEFAULT_ADDRESS, DEFAULT_ADDRESS, DEFAULT_ADDRESS);
         (collateralAsset, referenceAsset, marketId) = createMarket(1 days);
 
         // Deploy malicious tokens and attacker
@@ -189,9 +189,12 @@ contract CorkPoolReentrancyTest is Helper {
         uint256 rateMax = 1.1 ether;
         uint256 rateChangePerDayMax = 0.0001 ether;
         uint256 rateChangeCapacityMax = 0.001 ether;
-        maliciousMarketId = corkPool.getId(address(maliciousReference), address(maliciousCollateral), expiry, address(testOracle), rateMin, rateMax, rateChangePerDayMax, rateChangeCapacityMax);
 
-        corkConfig.createNewMarket(address(maliciousReference), address(maliciousCollateral), expiry, address(testOracle), rateMin, rateMax, rateChangePerDayMax, rateChangeCapacityMax);
+        Market memory market =
+            Market({collateralAsset: address(maliciousCollateral), referenceAsset: address(maliciousReference), expiryTimestamp: expiry, rateOracle: address(testOracle), rateMin: rateMin, rateMax: rateMax, rateChangePerDayMax: rateChangePerDayMax, rateChangeCapacityMax: rateChangeCapacityMax});
+        maliciousMarketId = corkPool.getId(market);
+
+        corkConfig.createNewPool(market);
 
         // Setup attacker
         attacker.setMarketId(maliciousMarketId);
@@ -298,7 +301,7 @@ contract CorkPoolReentrancyTest is Helper {
         corkPool.deposit(maliciousMarketId, 1000 ether, address(attacker));
 
         maliciousReference.approve(address(corkPool), type(uint256).max);
-        corkPool.exercise(maliciousMarketId, 100 ether, 0, address(attacker), 0, type(uint256).max);
+        corkPool.exercise(IPoolManager.ExerciseParams({poolId: maliciousMarketId, shares: 100 ether, compensation: 0, receiver: address(attacker), minAssetsOut: 0, maxOtherAssetSpent: type(uint256).max}));
 
         maliciousReference.enableAttack(true);
 
@@ -333,7 +336,7 @@ contract CorkPoolReentrancyTest is Helper {
         corkPool.deposit(maliciousMarketId, 1000 ether, address(attacker));
 
         maliciousReference.approve(address(corkPool), type(uint256).max);
-        corkPool.exercise(maliciousMarketId, 100 ether, 0, address(attacker), 0, type(uint256).max);
+        corkPool.exercise(IPoolManager.ExerciseParams({poolId: maliciousMarketId, shares: 100 ether, compensation: 0, receiver: address(attacker), minAssetsOut: 0, maxOtherAssetSpent: type(uint256).max}));
 
         maliciousReference.enableAttack(true);
 

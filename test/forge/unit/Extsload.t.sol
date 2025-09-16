@@ -19,7 +19,7 @@ contract ExtsloadTest is Helper {
 
     function setUp() public {
         vm.startPrank(DEFAULT_ADDRESS);
-        deployContracts(DEFAULT_ADDRESS, DEFAULT_ADDRESS);
+        deployContracts(DEFAULT_ADDRESS, DEFAULT_ADDRESS, DEFAULT_ADDRESS);
 
         // Initialize the market to have some data in storage
         (collateralAsset, referenceAsset, id) = createMarket(1 days);

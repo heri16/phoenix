@@ -1,9 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 pragma solidity ^0.8.30;
 
-import {CollateralAssetManager} from "contracts/libraries/CollateralAssetManager.sol";
 import {Market} from "contracts/libraries/Market.sol";
-import {SwapToken} from "contracts/libraries/SwapToken.sol";
 
 /**
  * @dev State structure
@@ -11,13 +9,28 @@ import {SwapToken} from "contracts/libraries/SwapToken.sol";
  */
 struct State {
     Market info;
-    /// @dev epoch => SwapToken(Principal Token + Swap Token)
-    SwapToken swapToken;
+    /// @dev epoch => Shares(Principal Token + Swap Token)
+    Shares shares;
     PoolState pool;
     // @dev decimals of the reference asset token
     uint8 referenceDecimals;
     // @dev decimals of the collateral asset token
     uint8 collateralDecimals;
+}
+
+/// @dev struct for shares
+struct Shares {
+    address swap;
+    address principal;
+    uint256 withdrawn;
+}
+
+/**
+ * @dev CollateralAssetManager struct for managing collateral asset
+ */
+struct CollateralAssetManager {
+    address _address;
+    uint256 locked;
 }
 
 /**

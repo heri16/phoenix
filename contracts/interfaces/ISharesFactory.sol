@@ -37,8 +37,8 @@ interface ISharesFactory is IErrors {
 
     struct DeployParams {
         Market poolParams;
+        MarketId poolId;
         address owner;
-        uint256 swapRate;
     }
 
     function deployPoolShares(DeployParams calldata params) external returns (address principalToken, address swapToken);

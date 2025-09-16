@@ -2,13 +2,10 @@
 pragma solidity ^0.8.30;
 
 import {Helper} from "../../Helper.sol";
-
 import {PoolShare} from "contracts/core/assets/PoolShare.sol";
-import {IErrors} from "contracts/interfaces/IErrors.sol";
-import {MarketId} from "contracts/libraries/Market.sol";
-import {TransferHelper} from "contracts/libraries/TransferHelper.sol";
+import {ICorkPoolAdapter} from "contracts/interfaces/ICorkPoolAdapter.sol";
 import {CorkPoolAdapter} from "contracts/periphery/CorkPoolAdapter.sol";
-import {IERC20} from "openzeppelin-contracts/contracts/interfaces/IERC20.sol";
+import {ErrorsLib} from "contracts/periphery/bundler3/libraries/ErrorsLib.sol";
 import {ERC20Mock} from "test/mocks/ERC20Mock.sol";
 
 contract CorkPoolAdapterSwapTest is Helper {
@@ -24,7 +21,7 @@ contract CorkPoolAdapterSwapTest is Helper {
 
     function setUp() public {
         vm.startPrank(DEFAULT_ADDRESS);
-        deployContracts(DEFAULT_ADDRESS, DEFAULT_ADDRESS);
+        deployContracts(DEFAULT_ADDRESS, DEFAULT_ADDRESS, DEFAULT_ADDRESS);
         deployPeriphery();
         vm.stopPrank();
     }
@@ -95,7 +92,7 @@ contract CorkPoolAdapterSwapTest is Helper {
         uint256 adapterRefTokenBefore = referenceAsset.balanceOf(address(corkPoolAdapter));
 
         // Execute swap
-        corkPoolAdapter.safeSwap(defaultCurrencyId, assetsToReceive, address(corkPoolAdapter), RECEIVER, maxSharesIn, maxCompensationIn, block.timestamp + 1 hours);
+        corkPoolAdapter.safeSwap(ICorkPoolAdapter.SafeSwapParams({poolId: defaultCurrencyId, collateralAssets: assetsToReceive, owner: address(corkPoolAdapter), receiver: RECEIVER, maxCstSharesIn: maxSharesIn, maxReferenceAssetsIn: maxCompensationIn, deadline: block.timestamp + 1 hours}));
 
         // Verify results using scoped variables
         {
@@ -119,8 +116,8 @@ contract CorkPoolAdapterSwapTest is Helper {
         uint256 maxSharesIn = 100e18;
         uint256 maxCompensationIn = 100e18;
 
-        vm.expectRevert(IErrors.DeadlineExceeded.selector);
-        corkPoolAdapter.safeSwap(defaultCurrencyId, assetsToReceive, address(corkPoolAdapter), RECEIVER, maxSharesIn, maxCompensationIn, block.timestamp - 1);
+        vm.expectRevert(ErrorsLib.DeadlineExceeded.selector);
+        corkPoolAdapter.safeSwap(ICorkPoolAdapter.SafeSwapParams({poolId: defaultCurrencyId, collateralAssets: assetsToReceive, owner: address(corkPoolAdapter), receiver: RECEIVER, maxCstSharesIn: maxSharesIn, maxReferenceAssetsIn: maxCompensationIn, deadline: block.timestamp - 1}));
 
         vm.stopPrank();
     }
@@ -133,8 +130,8 @@ contract CorkPoolAdapterSwapTest is Helper {
         uint256 maxSharesIn = 100e18;
         uint256 maxCompensationIn = 100e18;
 
-        vm.expectRevert(IErrors.ZeroAddress.selector);
-        corkPoolAdapter.safeSwap(defaultCurrencyId, assetsToReceive, OWNER, address(0), maxSharesIn, maxCompensationIn, block.timestamp + 1 hours);
+        vm.expectRevert(ErrorsLib.ZeroAddress.selector);
+        corkPoolAdapter.safeSwap(ICorkPoolAdapter.SafeSwapParams({poolId: defaultCurrencyId, collateralAssets: assetsToReceive, owner: OWNER, receiver: address(0), maxCstSharesIn: maxSharesIn, maxReferenceAssetsIn: maxCompensationIn, deadline: block.timestamp + 1 hours}));
 
         vm.stopPrank();
     }
@@ -148,7 +145,7 @@ contract CorkPoolAdapterSwapTest is Helper {
         uint256 maxCompensationIn = 100e18;
 
         vm.expectRevert(); // Will revert due to insufficient balance since address(0) is actually valid as owner when initiator() returns address(0)
-        corkPoolAdapter.safeSwap(defaultCurrencyId, assetsToReceive, address(0), RECEIVER, maxSharesIn, maxCompensationIn, block.timestamp + 1 hours);
+        corkPoolAdapter.safeSwap(ICorkPoolAdapter.SafeSwapParams({poolId: defaultCurrencyId, collateralAssets: assetsToReceive, owner: address(0), receiver: RECEIVER, maxCstSharesIn: maxSharesIn, maxReferenceAssetsIn: maxCompensationIn, deadline: block.timestamp + 1 hours}));
 
         vm.stopPrank();
     }
@@ -160,8 +157,8 @@ contract CorkPoolAdapterSwapTest is Helper {
         uint256 maxSharesIn = 100e18;
         uint256 maxCompensationIn = 100e18;
 
-        vm.expectRevert(IErrors.ZeroAmount.selector);
-        corkPoolAdapter.safeSwap(defaultCurrencyId, 0, address(corkPoolAdapter), RECEIVER, maxSharesIn, maxCompensationIn, block.timestamp + 1 hours);
+        vm.expectRevert(ErrorsLib.ZeroAmount.selector);
+        corkPoolAdapter.safeSwap(ICorkPoolAdapter.SafeSwapParams({poolId: defaultCurrencyId, collateralAssets: 0, owner: address(corkPoolAdapter), receiver: RECEIVER, maxCstSharesIn: maxSharesIn, maxReferenceAssetsIn: maxCompensationIn, deadline: block.timestamp + 1 hours}));
 
         vm.stopPrank();
     }
@@ -181,8 +178,8 @@ contract CorkPoolAdapterSwapTest is Helper {
 
         vm.startPrank(DEFAULT_ADDRESS);
 
-        vm.expectRevert(IErrors.SlippageExceeded.selector);
-        corkPoolAdapter.safeSwap(defaultCurrencyId, assetsToReceive, address(corkPoolAdapter), RECEIVER, maxSharesIn, maxCompensationIn, block.timestamp + 1 hours);
+        vm.expectRevert(ErrorsLib.SlippageExceeded.selector);
+        corkPoolAdapter.safeSwap(ICorkPoolAdapter.SafeSwapParams({poolId: defaultCurrencyId, collateralAssets: assetsToReceive, owner: address(corkPoolAdapter), receiver: RECEIVER, maxCstSharesIn: maxSharesIn, maxReferenceAssetsIn: maxCompensationIn, deadline: block.timestamp + 1 hours}));
 
         vm.stopPrank();
     }
@@ -202,8 +199,8 @@ contract CorkPoolAdapterSwapTest is Helper {
 
         vm.startPrank(DEFAULT_ADDRESS);
 
-        vm.expectRevert(IErrors.SlippageExceeded.selector);
-        corkPoolAdapter.safeSwap(defaultCurrencyId, assetsToReceive, address(corkPoolAdapter), RECEIVER, maxSharesIn, maxCompensationIn, block.timestamp + 1 hours);
+        vm.expectRevert(ErrorsLib.SlippageExceeded.selector);
+        corkPoolAdapter.safeSwap(ICorkPoolAdapter.SafeSwapParams({poolId: defaultCurrencyId, collateralAssets: assetsToReceive, owner: address(corkPoolAdapter), receiver: RECEIVER, maxCstSharesIn: maxSharesIn, maxReferenceAssetsIn: maxCompensationIn, deadline: block.timestamp + 1 hours}));
 
         vm.stopPrank();
     }
@@ -216,7 +213,7 @@ contract CorkPoolAdapterSwapTest is Helper {
         uint256 maxCompensationIn = 100e18;
 
         vm.prank(address(0x999));
-        vm.expectRevert(IErrors.UnauthorizedSender.selector);
-        corkPoolAdapter.safeSwap(defaultCurrencyId, assetsToReceive, address(corkPoolAdapter), RECEIVER, maxSharesIn, maxCompensationIn, block.timestamp + 1 hours);
+        vm.expectRevert(ErrorsLib.UnauthorizedSender.selector);
+        corkPoolAdapter.safeSwap(ICorkPoolAdapter.SafeSwapParams({poolId: defaultCurrencyId, collateralAssets: assetsToReceive, owner: address(corkPoolAdapter), receiver: RECEIVER, maxCstSharesIn: maxSharesIn, maxReferenceAssetsIn: maxCompensationIn, deadline: block.timestamp + 1 hours}));
     }
 }

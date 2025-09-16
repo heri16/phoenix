@@ -2,13 +2,13 @@
 pragma solidity ^0.8.30;
 
 import {Helper} from "../../Helper.sol";
-import {ErrorsLib} from "contracts/periphery/bundler3/libraries/ErrorsLib.sol";
-
 import {PoolShare} from "contracts/core/assets/PoolShare.sol";
-import {IErrors} from "contracts/interfaces/IErrors.sol";
+import {ICorkPoolAdapter} from "contracts/interfaces/ICorkPoolAdapter.sol";
 import {MarketId} from "contracts/libraries/Market.sol";
 import {TransferHelper} from "contracts/libraries/TransferHelper.sol";
 import {CorkPoolAdapter} from "contracts/periphery/CorkPoolAdapter.sol";
+import {ErrorsLib} from "contracts/periphery/bundler3/libraries/ErrorsLib.sol";
+import {ErrorsLib} from "contracts/periphery/bundler3/libraries/ErrorsLib.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/interfaces/IERC20.sol";
 import {ERC20Mock} from "test/mocks/ERC20Mock.sol";
 
@@ -37,7 +37,7 @@ contract CorkPoolAdapterUnwindTest is Helper {
 
     function setUp() public {
         vm.startPrank(DEFAULT_ADDRESS);
-        deployContracts(DEFAULT_ADDRESS, DEFAULT_ADDRESS);
+        deployContracts(DEFAULT_ADDRESS, DEFAULT_ADDRESS, DEFAULT_ADDRESS);
         deployPeriphery();
         vm.stopPrank();
     }
@@ -99,7 +99,7 @@ contract CorkPoolAdapterUnwindTest is Helper {
             corkCollateral: 0
         });
 
-        corkPoolAdapter.safeUnwindDeposit(defaultCurrencyId, shareAmount, address(corkPoolAdapter), RECEIVER, type(uint256).max, block.timestamp);
+        corkPoolAdapter.safeUnwindDeposit(ICorkPoolAdapter.SafeUnwindDepositParams({poolId: defaultCurrencyId, assets: shareAmount, owner: address(corkPoolAdapter), receiver: RECEIVER, maxSharesIn: type(uint256).max, deadline: block.timestamp}));
 
         UnwindBalances memory balancesAfter = UnwindBalances({
             peripheryCollateral: collateralAsset.balanceOf(address(corkPoolAdapter)),
@@ -148,7 +148,7 @@ contract CorkPoolAdapterUnwindTest is Helper {
         });
 
         uint256 out = TransferHelper.normalizeDecimals(hardcodedShares18, 18, raDecimals);
-        corkPoolAdapter.safeUnwindDeposit(defaultCurrencyId, out, address(corkPoolAdapter), RECEIVER, type(uint256).max, block.timestamp);
+        corkPoolAdapter.safeUnwindDeposit(ICorkPoolAdapter.SafeUnwindDepositParams({poolId: defaultCurrencyId, assets: out, owner: address(corkPoolAdapter), receiver: RECEIVER, maxSharesIn: type(uint256).max, deadline: block.timestamp}));
 
         UnwindBalances memory _after = UnwindBalances({
             peripheryCollateral: collateralAsset.balanceOf(address(corkPoolAdapter)),
@@ -192,7 +192,7 @@ contract CorkPoolAdapterUnwindTest is Helper {
 
         // Use the minimum balance (which should be shareAmount since both CPT and CST have the same amount)
         uint256 minBalance = shareAmount < shareAmount ? shareAmount : shareAmount; // Both are equal, so use shareAmount
-        corkPoolAdapter.safeUnwindDeposit(defaultCurrencyId, shareAmount, address(corkPoolAdapter), RECEIVER, type(uint256).max, block.timestamp);
+        corkPoolAdapter.safeUnwindDeposit(ICorkPoolAdapter.SafeUnwindDepositParams({poolId: defaultCurrencyId, assets: shareAmount, owner: address(corkPoolAdapter), receiver: RECEIVER, maxSharesIn: type(uint256).max, deadline: block.timestamp}));
 
         uint256 peripheryPTAfter = principalToken.balanceOf(address(corkPoolAdapter));
         uint256 peripheryCSAfter = swapToken.balanceOf(address(corkPoolAdapter));
@@ -233,7 +233,7 @@ contract CorkPoolAdapterUnwindTest is Helper {
         corkConfig.updateBaseRedemptionFeePercentage(defaultCurrencyId, 0);
         // Calculate the amount in collateral decimals (since shares are 1:1 with collateral)
         uint256 collateralAmount = TransferHelper.fixedToTokenNativeDecimals(shareAmount, collateralAsset.decimals());
-        corkPoolAdapter.safeUnwindDeposit(defaultCurrencyId, collateralAmount, address(corkPoolAdapter), RECEIVER, type(uint256).max, block.timestamp);
+        corkPoolAdapter.safeUnwindDeposit(ICorkPoolAdapter.SafeUnwindDepositParams({poolId: defaultCurrencyId, assets: collateralAmount, owner: address(corkPoolAdapter), receiver: RECEIVER, maxSharesIn: type(uint256).max, deadline: block.timestamp}));
 
         UnwindBalances memory balancesAfter = UnwindBalances({
             peripheryCollateral: collateralAsset.balanceOf(address(corkPoolAdapter)),
@@ -276,7 +276,7 @@ contract CorkPoolAdapterUnwindTest is Helper {
             corkCollateral: 0
         });
 
-        corkPoolAdapter.safeUnwindMint(defaultCurrencyId, shareAmount, address(corkPoolAdapter), RECEIVER, 0, block.timestamp);
+        corkPoolAdapter.safeUnwindMint(ICorkPoolAdapter.SafeUnwindMintParams({poolId: defaultCurrencyId, shares: shareAmount, owner: address(corkPoolAdapter), receiver: RECEIVER, minAssetsOut: 0, deadline: block.timestamp}));
 
         UnwindBalances memory balancesAfter = UnwindBalances({
             peripheryCollateral: collateralAsset.balanceOf(address(corkPoolAdapter)),
@@ -323,7 +323,7 @@ contract CorkPoolAdapterUnwindTest is Helper {
             corkCollateral: collateralAsset.balanceOf(address(corkPool))
         });
 
-        corkPoolAdapter.safeUnwindMint(defaultCurrencyId, hardcodedShares18, address(corkPoolAdapter), RECEIVER, 0, block.timestamp);
+        corkPoolAdapter.safeUnwindMint(ICorkPoolAdapter.SafeUnwindMintParams({poolId: defaultCurrencyId, shares: hardcodedShares18, owner: address(corkPoolAdapter), receiver: RECEIVER, minAssetsOut: 0, deadline: block.timestamp}));
 
         UnwindBalances memory _after = UnwindBalances({
             peripheryCollateral: collateralAsset.balanceOf(address(corkPoolAdapter)),
@@ -365,7 +365,7 @@ contract CorkPoolAdapterUnwindTest is Helper {
         uint256 receiverPTBefore = principalToken.balanceOf(RECEIVER);
         uint256 receiverCSBefore = swapToken.balanceOf(RECEIVER);
 
-        corkPoolAdapter.safeUnwindMint(defaultCurrencyId, type(uint256).max, address(corkPoolAdapter), RECEIVER, 0, block.timestamp);
+        corkPoolAdapter.safeUnwindMint(ICorkPoolAdapter.SafeUnwindMintParams({poolId: defaultCurrencyId, shares: type(uint256).max, owner: address(corkPoolAdapter), receiver: RECEIVER, minAssetsOut: 0, deadline: block.timestamp}));
 
         uint256 peripheryPTAfter = principalToken.balanceOf(address(corkPoolAdapter));
         uint256 peripheryCSAfter = swapToken.balanceOf(address(corkPoolAdapter));
@@ -401,7 +401,7 @@ contract CorkPoolAdapterUnwindTest is Helper {
             corkCollateral: 0
         });
 
-        corkPoolAdapter.safeUnwindMint(defaultCurrencyId, type(uint256).max, address(corkPoolAdapter), RECEIVER, 0, block.timestamp);
+        corkPoolAdapter.safeUnwindMint(ICorkPoolAdapter.SafeUnwindMintParams({poolId: defaultCurrencyId, shares: type(uint256).max, owner: address(corkPoolAdapter), receiver: RECEIVER, minAssetsOut: 0, deadline: block.timestamp}));
 
         UnwindBalances memory balancesAfter = UnwindBalances({
             peripheryCollateral: collateralAsset.balanceOf(address(corkPoolAdapter)),
@@ -429,8 +429,8 @@ contract CorkPoolAdapterUnwindTest is Helper {
         vm.startPrank(DEFAULT_ADDRESS);
         setupDifferentDecimals(18, 18);
 
-        vm.expectRevert(IErrors.ZeroAddress.selector);
-        corkPoolAdapter.safeUnwindDeposit(defaultCurrencyId, 50e18, address(corkPoolAdapter), address(0), type(uint256).max, block.timestamp);
+        vm.expectRevert(ErrorsLib.ZeroAddress.selector);
+        corkPoolAdapter.safeUnwindDeposit(ICorkPoolAdapter.SafeUnwindDepositParams({poolId: defaultCurrencyId, assets: 50e18, owner: address(corkPoolAdapter), receiver: address(0), maxSharesIn: type(uint256).max, deadline: block.timestamp}));
 
         vm.stopPrank();
     }
@@ -440,7 +440,7 @@ contract CorkPoolAdapterUnwindTest is Helper {
         setupDifferentDecimals(18, 18);
 
         vm.expectRevert(ErrorsLib.UnexpectedOwner.selector);
-        corkPoolAdapter.safeUnwindDeposit(defaultCurrencyId, 50e18, address(0), RECEIVER, type(uint256).max, block.timestamp);
+        corkPoolAdapter.safeUnwindDeposit(ICorkPoolAdapter.SafeUnwindDepositParams({poolId: defaultCurrencyId, assets: 50e18, owner: address(0), receiver: RECEIVER, maxSharesIn: type(uint256).max, deadline: block.timestamp}));
 
         vm.stopPrank();
     }
@@ -449,8 +449,8 @@ contract CorkPoolAdapterUnwindTest is Helper {
         vm.startPrank(DEFAULT_ADDRESS);
         setupDifferentDecimals(18, 18);
 
-        vm.expectRevert(IErrors.ZeroAmount.selector);
-        corkPoolAdapter.safeUnwindDeposit(defaultCurrencyId, 0, address(corkPoolAdapter), RECEIVER, type(uint256).max, block.timestamp);
+        vm.expectRevert(ErrorsLib.ZeroAmount.selector);
+        corkPoolAdapter.safeUnwindDeposit(ICorkPoolAdapter.SafeUnwindDepositParams({poolId: defaultCurrencyId, assets: 0, owner: address(corkPoolAdapter), receiver: RECEIVER, maxSharesIn: type(uint256).max, deadline: block.timestamp}));
 
         vm.stopPrank();
     }
@@ -459,8 +459,8 @@ contract CorkPoolAdapterUnwindTest is Helper {
         vm.startPrank(DEFAULT_ADDRESS);
         setupDifferentDecimals(18, 18);
 
-        vm.expectRevert(IErrors.ZeroAmount.selector);
-        corkPoolAdapter.safeUnwindDeposit(defaultCurrencyId, 0, address(corkPoolAdapter), RECEIVER, type(uint256).max, block.timestamp);
+        vm.expectRevert(ErrorsLib.ZeroAmount.selector);
+        corkPoolAdapter.safeUnwindDeposit(ICorkPoolAdapter.SafeUnwindDepositParams({poolId: defaultCurrencyId, assets: 0, owner: address(corkPoolAdapter), receiver: RECEIVER, maxSharesIn: type(uint256).max, deadline: block.timestamp}));
 
         vm.stopPrank();
     }
@@ -471,8 +471,8 @@ contract CorkPoolAdapterUnwindTest is Helper {
         vm.stopPrank();
 
         vm.prank(address(0x999));
-        vm.expectRevert(IErrors.UnauthorizedSender.selector);
-        corkPoolAdapter.safeUnwindDeposit(defaultCurrencyId, 50e18, address(corkPoolAdapter), RECEIVER, type(uint256).max, block.timestamp);
+        vm.expectRevert(ErrorsLib.UnauthorizedSender.selector);
+        corkPoolAdapter.safeUnwindDeposit(ICorkPoolAdapter.SafeUnwindDepositParams({poolId: defaultCurrencyId, assets: 50e18, owner: address(corkPoolAdapter), receiver: RECEIVER, maxSharesIn: type(uint256).max, deadline: block.timestamp}));
     }
 
     function test_unwindDeposit_revertsOnSlippageExceeded() public {
@@ -485,8 +485,8 @@ contract CorkPoolAdapterUnwindTest is Helper {
         // Set maxSharesIn to a very low value to trigger slippage
         uint256 maxSharesIn = shareAmount / 10; // Much lower than expected shares needed
 
-        vm.expectRevert(IErrors.SlippageExceeded.selector);
-        corkPoolAdapter.safeUnwindDeposit(defaultCurrencyId, shareAmount, address(corkPoolAdapter), RECEIVER, maxSharesIn, block.timestamp);
+        vm.expectRevert(ErrorsLib.SlippageExceeded.selector);
+        corkPoolAdapter.safeUnwindDeposit(ICorkPoolAdapter.SafeUnwindDepositParams({poolId: defaultCurrencyId, assets: shareAmount, owner: address(corkPoolAdapter), receiver: RECEIVER, maxSharesIn: maxSharesIn, deadline: block.timestamp}));
 
         vm.stopPrank();
     }
@@ -495,8 +495,8 @@ contract CorkPoolAdapterUnwindTest is Helper {
         vm.startPrank(DEFAULT_ADDRESS);
         setupDifferentDecimals(18, 18);
 
-        vm.expectRevert(IErrors.DeadlineExceeded.selector);
-        corkPoolAdapter.safeUnwindDeposit(defaultCurrencyId, 50e18, address(corkPoolAdapter), RECEIVER, type(uint256).max, block.timestamp - 1);
+        vm.expectRevert(ErrorsLib.DeadlineExceeded.selector);
+        corkPoolAdapter.safeUnwindDeposit(ICorkPoolAdapter.SafeUnwindDepositParams({poolId: defaultCurrencyId, assets: 50e18, owner: address(corkPoolAdapter), receiver: RECEIVER, maxSharesIn: type(uint256).max, deadline: block.timestamp - 1}));
 
         vm.stopPrank();
     }
@@ -506,8 +506,8 @@ contract CorkPoolAdapterUnwindTest is Helper {
         vm.startPrank(DEFAULT_ADDRESS);
         setupDifferentDecimals(18, 18);
 
-        vm.expectRevert(IErrors.ZeroAddress.selector);
-        corkPoolAdapter.safeUnwindMint(defaultCurrencyId, 50e18, address(corkPoolAdapter), address(0), 0, block.timestamp);
+        vm.expectRevert(ErrorsLib.ZeroAddress.selector);
+        corkPoolAdapter.safeUnwindMint(ICorkPoolAdapter.SafeUnwindMintParams({poolId: defaultCurrencyId, shares: 50e18, owner: address(corkPoolAdapter), receiver: address(0), minAssetsOut: 0, deadline: block.timestamp}));
 
         vm.stopPrank();
     }
@@ -517,7 +517,7 @@ contract CorkPoolAdapterUnwindTest is Helper {
         setupDifferentDecimals(18, 18);
 
         vm.expectRevert(ErrorsLib.UnexpectedOwner.selector);
-        corkPoolAdapter.safeUnwindMint(defaultCurrencyId, 50e18, address(0), RECEIVER, 0, block.timestamp);
+        corkPoolAdapter.safeUnwindMint(ICorkPoolAdapter.SafeUnwindMintParams({poolId: defaultCurrencyId, shares: 50e18, owner: address(0), receiver: RECEIVER, minAssetsOut: 0, deadline: block.timestamp}));
 
         vm.stopPrank();
     }
@@ -527,7 +527,7 @@ contract CorkPoolAdapterUnwindTest is Helper {
         setupDifferentDecimals(18, 18);
 
         vm.expectRevert(ErrorsLib.ZeroShares.selector);
-        corkPoolAdapter.safeUnwindMint(defaultCurrencyId, 0, address(corkPoolAdapter), RECEIVER, 0, block.timestamp);
+        corkPoolAdapter.safeUnwindMint(ICorkPoolAdapter.SafeUnwindMintParams({poolId: defaultCurrencyId, shares: 0, owner: address(corkPoolAdapter), receiver: RECEIVER, minAssetsOut: 0, deadline: block.timestamp}));
 
         vm.stopPrank();
     }
@@ -537,7 +537,7 @@ contract CorkPoolAdapterUnwindTest is Helper {
         setupDifferentDecimals(18, 18);
 
         vm.expectRevert(ErrorsLib.ZeroShares.selector);
-        corkPoolAdapter.safeUnwindMint(defaultCurrencyId, type(uint256).max, address(corkPoolAdapter), RECEIVER, 0, block.timestamp);
+        corkPoolAdapter.safeUnwindMint(ICorkPoolAdapter.SafeUnwindMintParams({poolId: defaultCurrencyId, shares: type(uint256).max, owner: address(corkPoolAdapter), receiver: RECEIVER, minAssetsOut: 0, deadline: block.timestamp}));
 
         vm.stopPrank();
     }
@@ -548,8 +548,8 @@ contract CorkPoolAdapterUnwindTest is Helper {
         vm.stopPrank();
 
         vm.prank(address(0x999));
-        vm.expectRevert(IErrors.UnauthorizedSender.selector);
-        corkPoolAdapter.safeUnwindMint(defaultCurrencyId, 50e18, address(corkPoolAdapter), RECEIVER, 0, block.timestamp);
+        vm.expectRevert(ErrorsLib.UnauthorizedSender.selector);
+        corkPoolAdapter.safeUnwindMint(ICorkPoolAdapter.SafeUnwindMintParams({poolId: defaultCurrencyId, shares: 50e18, owner: address(corkPoolAdapter), receiver: RECEIVER, minAssetsOut: 0, deadline: block.timestamp}));
     }
 
     function test_unwindMint_revertsOnSlippageExceeded() public {
@@ -562,8 +562,8 @@ contract CorkPoolAdapterUnwindTest is Helper {
         // Set minAssetsOut to a very high value to trigger slippage
         uint256 minAssetsOut = shareAmount * 2; // Expect double the collateral than possible
 
-        vm.expectRevert(IErrors.SlippageExceeded.selector);
-        corkPoolAdapter.safeUnwindMint(defaultCurrencyId, shareAmount, address(corkPoolAdapter), RECEIVER, minAssetsOut, block.timestamp);
+        vm.expectRevert(ErrorsLib.SlippageExceeded.selector);
+        corkPoolAdapter.safeUnwindMint(ICorkPoolAdapter.SafeUnwindMintParams({poolId: defaultCurrencyId, shares: shareAmount, owner: address(corkPoolAdapter), receiver: RECEIVER, minAssetsOut: minAssetsOut, deadline: block.timestamp}));
 
         vm.stopPrank();
     }
@@ -572,8 +572,8 @@ contract CorkPoolAdapterUnwindTest is Helper {
         vm.startPrank(DEFAULT_ADDRESS);
         setupDifferentDecimals(18, 18);
 
-        vm.expectRevert(IErrors.DeadlineExceeded.selector);
-        corkPoolAdapter.safeUnwindMint(defaultCurrencyId, 50e18, address(corkPoolAdapter), RECEIVER, 0, block.timestamp - 1);
+        vm.expectRevert(ErrorsLib.DeadlineExceeded.selector);
+        corkPoolAdapter.safeUnwindMint(ICorkPoolAdapter.SafeUnwindMintParams({poolId: defaultCurrencyId, shares: 50e18, owner: address(corkPoolAdapter), receiver: RECEIVER, minAssetsOut: 0, deadline: block.timestamp - 1}));
 
         vm.stopPrank();
     }
@@ -590,7 +590,7 @@ contract CorkPoolAdapterUnwindTest is Helper {
         uint256 totalPTSupplyBefore = principalToken.totalSupply();
         uint256 totalCSTSupplyBefore = swapToken.totalSupply();
 
-        corkPoolAdapter.safeUnwindDeposit(defaultCurrencyId, shareAmount, address(corkPoolAdapter), RECEIVER, type(uint256).max, block.timestamp);
+        corkPoolAdapter.safeUnwindDeposit(ICorkPoolAdapter.SafeUnwindDepositParams({poolId: defaultCurrencyId, assets: shareAmount, owner: address(corkPoolAdapter), receiver: RECEIVER, maxSharesIn: type(uint256).max, deadline: block.timestamp}));
 
         uint256 totalSupplyAfter = collateralAsset.totalSupply();
         uint256 totalPTSupplyAfter = principalToken.totalSupply();
@@ -616,7 +616,7 @@ contract CorkPoolAdapterUnwindTest is Helper {
         uint256 totalPTSupplyBefore = principalToken.totalSupply();
         uint256 totalCSTSupplyBefore = swapToken.totalSupply();
 
-        corkPoolAdapter.safeUnwindMint(defaultCurrencyId, shareAmount, address(corkPoolAdapter), RECEIVER, 0, block.timestamp);
+        corkPoolAdapter.safeUnwindMint(ICorkPoolAdapter.SafeUnwindMintParams({poolId: defaultCurrencyId, shares: shareAmount, owner: address(corkPoolAdapter), receiver: RECEIVER, minAssetsOut: 0, deadline: block.timestamp}));
 
         uint256 totalSupplyAfter = collateralAsset.totalSupply();
         uint256 totalPTSupplyAfter = principalToken.totalSupply();

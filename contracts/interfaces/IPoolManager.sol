@@ -3,7 +3,7 @@ pragma solidity ^0.8.30;
 
 import {IUnwindSwap} from "contracts/interfaces/IUnwindSwap.sol";
 import {Initialize} from "contracts/interfaces/Initialize.sol";
-import "contracts/libraries/Market.sol";
+import {Market, MarketId} from "contracts/libraries/Market.sol";
 
 /**
  * @title IPoolManager Interface
@@ -11,6 +11,39 @@ import "contracts/libraries/Market.sol";
  * @notice IPoolManager interface for CorkPool contract
  */
 interface IPoolManager is IUnwindSwap, Initialize {
+    struct ExerciseParams {
+        MarketId poolId; // The Cork Pool id
+        uint256 shares; // The amount of CST shares to lock (must be 0 if compensation is non-zero)
+        uint256 compensation; // The amount of reference token compensation to lock (must be 0 if shares is non-zero)
+        address receiver; // The address that will receive the collateral assets
+        uint256 minAssetsOut; // The minimum amount of collateral assets that must be received
+        uint256 maxOtherAssetSpent; // The maximum amount of other asset that can be spent
+    }
+
+    struct WithdrawParams {
+        MarketId poolId; // The Cork Pool id
+        uint256 collateralAssetOut; // The amount of collateral asset to withdraw
+        uint256 referenceAssetOut; // The amount of reference asset to withdraw
+        address owner; // The address that owns the Principal Token to be burned
+        address receiver; // The address that will receive the collateral assets and reference assets
+    }
+
+    struct UnwindExerciseParams {
+        MarketId poolId; // The Cork Pool id
+        uint256 shares; // The amount of CST shares to unlock
+        address receiver; // The address that will receive the unlocked tokens
+        uint256 minCompensationOut; // The minimum amount of reference token compensation that must be unlocked
+        uint256 maxAssetsIn; // The maximum amount of collateral assets that can be deposited
+    }
+
+    struct PausedStates {
+        bool depositPaused;
+        bool unwindSwapPaused;
+        bool swapPaused;
+        bool withdrawalPaused;
+        bool unwindDepositAndMintPaused;
+    }
+
     enum OperationType {
         DEPOSIT,
         UNWIND_SWAP,
@@ -21,7 +54,7 @@ interface IPoolManager is IUnwindSwap, Initialize {
 
     /// @param poolId The Cork Pool id
     /// @param sender The sender address
-    /// @param owner The receiver of shares
+    /// @param owner The owner/receiver of shares
     /// @param amount0 The collateral asset amount
     /// @param amount1 The reference asset amount
     /// @param isRemove The assets removed or added (false when added, true when removed)
@@ -33,9 +66,17 @@ interface IPoolManager is IUnwindSwap, Initialize {
     /// @param owner The address of the owner
     /// @param amount0 The amount of the collateral asset removed after fees
     /// @param amount1 The amount of the reference asset added after fees
-    /// @param feeAmount The amount of the fee sent to treasury
+    /// @param lpFeeAmount0 collateral asset fee earned by CPT holders, and accounted separately from the pool (zero)
+    /// @param lpFeeAmount1  reference asset fee earned by CPT holders, and accounted separately from the pool (zero)
     /// @param isUnwind Whether the swap is a repurchase (true if unwind or false when swap)
-    event PoolSwap(MarketId indexed poolId, address indexed sender, address indexed owner, uint256 amount0, uint256 amount1, uint256 feeAmount, bool isUnwind);
+    event PoolSwap(MarketId indexed poolId, address indexed sender, address indexed owner, uint256 amount0, uint256 amount1, uint256 lpFeeAmount0, uint256 lpFeeAmount1, bool isUnwind);
+
+    /// @notice Emitted when a user swaps a Swap Token for a given Cork Pool
+    /// @param poolId The Cork Pool id
+    /// @param sender The address of the sender
+    /// @param devFeeAmountInCollateralAsset The amount of the collateral asset fee to cork protocol
+    /// @param devFeeAmountInReferenceAsset The amount of the reference asset fee to cork protocol
+    event PoolFee(MarketId indexed poolId, address indexed sender, uint256 devFeeAmountInCollateralAsset, uint256 devFeeAmountInReferenceAsset);
 
     /// @notice Emmitted when baseRedemptionFeePercentage is updated
     /// @param poolId the Cork Pool id
@@ -109,7 +150,22 @@ interface IPoolManager is IUnwindSwap, Initialize {
      * @return otherAssetSpent The amount of other asset spent in the operation
      * @return fee The fee amount charged
      */
-    function exercise(MarketId marketId, uint256 shares, uint256 compensation, address receiver, uint256 minAssetsOut, uint256 maxOtherAssetSpent) external returns (uint256 assets, uint256 otherAssetSpent, uint256 fee);
+
+    /**
+     * @notice Exercise function that locks up CST shares or compensation in reference token
+     * and sends collateral assets to receiver
+     * @param params The parameters for the exercise operation
+     * @dev params.shares The amount of CST shares to lock (must be 0 if compensation is non-zero)
+     * @dev params.compensation The amount of reference token compensation to lock
+     * (must be 0 if shares is non-zero)
+     * @dev params.receiver The address that will receive the collateral assets
+     * @dev params.minAssetsOut The minimum amount of collateral assets that must be received
+     * @dev params.maxOtherAssetSpent The maximum amount of other asset that can be spent
+     * @return assets The amount of collateral assets sent to receiver
+     * @return otherAssetSpent The amount of other asset spent in the operation
+     * @return fee The fee amount charged
+     */
+    function exercise(ExerciseParams memory params) external returns (uint256 assets, uint256 otherAssetSpent, uint256 fee);
 
     /**
      * @notice Preview the exercise operation without executing it
@@ -125,15 +181,17 @@ interface IPoolManager is IUnwindSwap, Initialize {
 
     /**
      * @notice unwindExercise - unlocks CST shares and reference token compensation by depositing collateral assets
-     * @param poolId The Cork Pool id
-     * @param shares The amount of CST shares to unlock
-     * @param receiver The address that will receive the unlocked tokens
-     * @param minCompensationOut The minimum amount of reference token compensation that must be unlocked
-     * @param maxAssetsIn The maximum amount of collateral assets that can be deposited
+     * @param params The parameters for the unwind exercise operation
+     * params.poolId The Cork Pool id
+     * params.shares The amount of CST shares to unlock
+     * params.receiver The address that will receive the unlocked tokens
+     * params.minCompensationOut The minimum amount of reference token compensation that must be unlocked
+     * params.maxAssetsIn The maximum amount of collateral assets that can be deposited
      * @return assetIn The amount of collateral assets deposited
      * @return compensationOut The amount of reference token compensation unlocked
+     * @return fee The fee amount sent to cork protocol
      */
-    function unwindExercise(MarketId poolId, uint256 shares, address receiver, uint256 minCompensationOut, uint256 maxAssetsIn) external returns (uint256 assetIn, uint256 compensationOut);
+    function unwindExercise(UnwindExerciseParams calldata params) external returns (uint256 assetIn, uint256 compensationOut, uint256 fee);
 
     /**
      * @notice Previews the outcome of unwinding an exercise operation
@@ -153,6 +211,16 @@ interface IPoolManager is IUnwindSwap, Initialize {
      * @return shares The maximum amount of CST shares that could be unlocked through unwindExercise
      */
     function maxUnwindExercise(MarketId poolId, address receiver) external view returns (uint256 shares);
+
+    /**
+     * @notice Returns the maximum amount of reference assets that would be unlocked through `unwindExercise` and not cause a revert.
+     * @dev MUST NOT revert.
+     * @dev This assumes that the user has infinite collateral assets, i.e. MUST NOT rely on `balanceOf` of collateral asset.
+     * @param poolId The Cork Pool id
+     * @param receiver The address that would receive the unlocked tokens (not used for calculation)
+     * @return maxReferenceAssets The maximum amount of reference assets that would be unlocked through unwindExercise
+     */
+    function maxUnwindExerciseOther(MarketId poolId, address receiver) external view returns (uint256 maxReferenceAssets);
 
     /**
      * @notice swap Collateral Asset + Reference Asset with Principal Token at expiry
@@ -178,10 +246,10 @@ interface IPoolManager is IUnwindSwap, Initialize {
     /**
      * @notice returns amount of value locked in Cork Pool
      * @param poolId The Cork Pool id
-     * @param collateralAsset true if you want to get value locked in Collateral Asset, false if you want to get value locked in Reference Asset
-     * @return lockedAmount the amount of value locked in the Cork Pool
+     * @return collateralAssets The amount of collateral assets locked in the pool
+     * @return referenceAssets The amount of reference assets locked in the pool
      */
-    function valueLocked(MarketId poolId, bool collateralAsset) external view returns (uint256 lockedAmount);
+    function valueLocked(MarketId poolId) external view returns (uint256 collateralAssets, uint256 referenceAssets);
 
     /**
      * @notice returns base redemption fees (1e18 = 1%)
@@ -193,13 +261,14 @@ interface IPoolManager is IUnwindSwap, Initialize {
     /**
      * @notice Returns the pause status for all operations in a market
      * @param marketId The Cork Pool id
-     * @return depositPaused True if deposits are paused
-     * @return unwindSwapPaused True if unwind swaps are paused
-     * @return swapPaused True if swaps are paused
-     * @return withdrawalPaused True if withdrawals are paused
-     * @return unwindDepositAndMintPaused True if unwind deposits and mints are paused
+     * @return pausedStates The pause status for all operations in a market
+     * pausedStates.depositPaused True if deposits are paused
+     * pausedStates.unwindSwapPaused True if unwind swaps are paused
+     * pausedStates.swapPaused True if swaps are paused
+     * pausedStates.withdrawalPaused True if withdrawals are paused
+     * pausedStates.unwindDepositAndMintPaused True if unwind deposits and mints are paused
      */
-    function pausedStates(MarketId marketId) external view returns (bool depositPaused, bool unwindSwapPaused, bool swapPaused, bool withdrawalPaused, bool unwindDepositAndMintPaused);
+    function pausedStates(MarketId marketId) external view returns (PausedStates memory);
 
     /**
      * @notice Update operation status for different market operation types
@@ -247,13 +316,14 @@ interface IPoolManager is IUnwindSwap, Initialize {
      * @notice Previews the outcome of unwinding a swap operation
      * @param poolId The Cork Pool id
      * @param amount The amount of CPT tokens to unwind
-     * @return receivedRef The amount of reference asset that would be received
-     * @return receivedCst The amount of CST tokens that would be received
-     * @return feePercentage The fee percentage that would be applied
-     * @return fee The fee amount that would be charged
-     * @return swapRate The swap rate that would be used
+     * @return returnParams The return parameters for the unwind swap
+     * returnParams.receivedReferenceAsset The amount of reference asset that would be received
+     * returnParams.receivedSwapToken The amount of CST tokens that would be received
+     * returnParams.feePercentage The fee percentage that would be applied
+     * returnParams.fee The fee amount that would be charged
+     * returnParams.swapRate The swap rate that would be used during the unwind swap
      */
-    function previewUnwindSwap(MarketId poolId, uint256 amount) external view returns (uint256 receivedRef, uint256 receivedCst, uint256 feePercentage, uint256 fee, uint256 swapRate);
+    function previewUnwindSwap(MarketId poolId, uint256 amount) external view returns (IUnwindSwap.UnwindSwapReturnParams memory returnParams);
 
     /**
      * @notice Mints a specific amount of CPT and CST tokens by depositing collateral
@@ -328,16 +398,17 @@ interface IPoolManager is IUnwindSwap, Initialize {
     /// @notice WARNING : this function MAY gives out inexact collateralAssetOut due to rounding errors.
     /// it may give up to 2e(collateralAssetDecimals - 17). for 18 decimals token on both sides(colltaeral & reference), it'll give excess token up to 2 wei
     /**
-     * @param marketId The Cork Pool id
-     * @param collateralAssetOut The amount of collateral asset to withdraw
-     * @param referenceAssetOut The amount of reference asset to withdraw
-     * @param owner The address of the owner
-     * @param receiver The address of the receiver
+     * @param params The parameters for the withdraw operation
+     * params.poolId The Cork Pool id
+     * params.collateralAssetOut The amount of collateral asset to withdraw
+     * params.referenceAssetOut The amount of reference asset to withdraw
+     * params.owner The address of the owner
+     * params.receiver The address of the receiver
      * @return sharesIn The amount of CPT tokens burned
      * @return actualCollateralAssetOut The amount of collateral asset received
      * @return actualReferenceAssetOut The amount of reference asset received
      */
-    function withdraw(MarketId marketId, uint256 collateralAssetOut, uint256 referenceAssetOut, address owner, address receiver) external returns (uint256 sharesIn, uint256 actualCollateralAssetOut, uint256 actualReferenceAssetOut);
+    function withdraw(WithdrawParams calldata params) external returns (uint256 sharesIn, uint256 actualCollateralAssetOut, uint256 actualReferenceAssetOut);
 
     /**
      * @notice Previews the amount of CPT tokens needed to withdraw specific amounts of assets
@@ -358,6 +429,14 @@ interface IPoolManager is IUnwindSwap, Initialize {
     function maxWithdraw(MarketId marketId, address owner) external view returns (uint256 assets);
 
     /**
+     * @notice Returns the maximum amount of reference assets that could be transferred from `owner` through `withdraw`.
+     * @param marketId The Cork Pool id
+     * @param owner The address of the owner
+     * @return referenceAssets The maximum amount of reference assets that could be withdrawn
+     */
+    function maxWithdrawOther(MarketId marketId, address owner) external view returns (uint256 referenceAssets);
+
+    /**
      * @notice Returns the maximum amount of CST shares that could be transferred from `owner` through `exercise` and not cause a revert.
      * @dev MUST NOT be higher than the actual maximum that would be accepted (should underestimate if necessary).
      * @dev MUST factor in both global and user-specific limits, including global caps and owner's balance of CST and reference asset.
@@ -370,6 +449,18 @@ interface IPoolManager is IUnwindSwap, Initialize {
     function maxExercise(MarketId marketId, address owner) external view returns (uint256 shares);
 
     /**
+     * @notice Returns the maximum amount of reference assets that could be used as compensation in `exercise` and not cause a revert.
+     * @dev MUST NOT be higher than the actual maximum that would be accepted (should underestimate if necessary).
+     * @dev MUST factor in both global and user-specific limits, including global caps and owner's balance of reference asset.
+     * @dev MUST factor in other restrictive conditions, like if swap is entirely disabled (even temporarily) it MUST return 0.
+     * @dev MUST NOT revert.
+     * @param marketId The Cork Pool id
+     * @param owner The address of the owner
+     * @return maxReferenceAssets The maximum amount of reference assets that could be used as compensation in exercise
+     */
+    function maxExerciseOther(MarketId marketId, address owner) external view returns (uint256 maxReferenceAssets);
+
+    /**
      * @notice Swap function that locks up shares of Cork Swap Token and compensation of reference token
      * from msg.sender and sends exactly assets of collateral token from the vault to receiver
      * @param marketId The Cork Pool id
@@ -377,8 +468,9 @@ interface IPoolManager is IUnwindSwap, Initialize {
      * @param receiver The address that will receive the collateral assets
      * @return shares The amount of CST shares locked from msg.sender
      * @return compensation The amount of reference token locked from msg.sender
+     * @return fee The fee amount sent to cork protocol
      */
-    function swap(MarketId marketId, uint256 assets, address receiver) external returns (uint256 shares, uint256 compensation);
+    function swap(MarketId marketId, uint256 assets, address receiver) external returns (uint256 shares, uint256 compensation, uint256 fee);
 
     /**
      * @notice Returns the maximum amount of CPT shares that could be transferred from `owner` through `redeem` and not cause a revert.

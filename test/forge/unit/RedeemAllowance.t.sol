@@ -3,6 +3,7 @@ pragma solidity ^0.8.30;
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {PoolShare} from "contracts/core/assets/PoolShare.sol";
 import {IErrors} from "contracts/interfaces/IErrors.sol";
+import {IPoolManager} from "contracts/interfaces/IPoolManager.sol";
 import {Helper} from "test/forge/Helper.sol";
 import {ERC20Mock} from "test/mocks/ERC20Mock.sol";
 
@@ -20,7 +21,7 @@ contract RedeemAllowanceTest is Helper {
     function setUp() public {
         vm.startPrank(owner);
 
-        deployContracts(owner, owner);
+        deployContracts(owner, owner, owner);
         (collateralAsset, referenceAsset,) = createMarket(1 days);
 
         vm.deal(owner, 100 ether);
@@ -226,7 +227,7 @@ contract RedeemAllowanceTest is Helper {
 
         uint256 receiverBalanceBefore = collateralAsset.balanceOf(receiver);
 
-        (uint256 sharesIn, uint256 actualCollateralAssetOut, uint256 actualReferenceAssetOut) = corkPool.withdraw(defaultCurrencyId, maxWithdrawAmount, 0, owner, receiver);
+        (uint256 sharesIn, uint256 actualCollateralAssetOut, uint256 actualReferenceAssetOut) = corkPool.withdraw(IPoolManager.WithdrawParams({poolId: defaultCurrencyId, collateralAssetOut: maxWithdrawAmount, referenceAssetOut: 0, owner: owner, receiver: receiver}));
 
         uint256 receiverBalanceAfter = collateralAsset.balanceOf(receiver);
         uint256 actualWithdrawn = receiverBalanceAfter - receiverBalanceBefore;
@@ -247,7 +248,7 @@ contract RedeemAllowanceTest is Helper {
 
         if (ownerShares > 0) {
             PoolShare(principalToken).approve(address(corkPool), type(uint256).max);
-            corkPool.withdraw(defaultCurrencyId, maxWithdraw, 0, owner, owner);
+            corkPool.withdraw(IPoolManager.WithdrawParams({poolId: defaultCurrencyId, collateralAssetOut: maxWithdraw, referenceAssetOut: 0, owner: owner, receiver: owner}));
         }
 
         uint256 maxWithdrawAfterDrain = corkPool.maxWithdraw(defaultCurrencyId, owner);

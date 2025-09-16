@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: BUSL-1.1
 pragma solidity ^0.8.30;
 
+import {PoolShare} from "contracts/core/assets/PoolShare.sol";
 import {IErrors} from "contracts/interfaces/IErrors.sol";
-import {SwapToken, SwapTokenLibrary} from "contracts/libraries/SwapToken.sol";
+import {Shares} from "contracts/libraries/State.sol";
 
 /**
  * @title Guard Library Contract
@@ -10,27 +11,13 @@ import {SwapToken, SwapTokenLibrary} from "contracts/libraries/SwapToken.sol";
  * @notice Guard library which implements modifiers for Swap Token related features
  */
 library Guard {
-    using SwapTokenLibrary for SwapToken;
-
-    function _onlyNotExpired(SwapToken storage swapToken) internal view {
-        require(!swapToken.isExpired(), IErrors.Expired());
+    function safeBeforeExpired(Shares storage swapToken) internal view {
+        require(swapToken.swap != address(0) && swapToken.principal != address(0), IErrors.Uninitialized());
+        require(!PoolShare(swapToken.swap).isExpired(), IErrors.Expired());
     }
 
-    function _onlyExpired(SwapToken storage swapToken) internal view {
-        require(swapToken.isExpired(), IErrors.NotExpired());
-    }
-
-    function _onlyInitialized(SwapToken storage swapToken) internal view {
-        require(swapToken.isInitialized(), IErrors.Uninitialized());
-    }
-
-    function safeBeforeExpired(SwapToken storage swapToken) internal view {
-        _onlyInitialized(swapToken);
-        _onlyNotExpired(swapToken);
-    }
-
-    function safeAfterExpired(SwapToken storage swapToken) internal view {
-        _onlyInitialized(swapToken);
-        _onlyExpired(swapToken);
+    function safeAfterExpired(Shares storage swapToken) internal view {
+        require(swapToken.swap != address(0) && swapToken.principal != address(0), IErrors.Uninitialized());
+        require(PoolShare(swapToken.swap).isExpired(), IErrors.NotExpired());
     }
 }

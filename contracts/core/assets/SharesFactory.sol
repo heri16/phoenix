@@ -6,9 +6,9 @@ import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/U
 import {IERC20Metadata} from "@openzeppelin/contracts/interfaces/IERC20Metadata.sol";
 import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
 import {BokkyPooBahsDateTimeLibrary} from "BokkyPooBahsDateTimeLibrary/BokkyPooBahsDateTimeLibrary.sol";
-import {PoolShare} from "contracts/core/assets/PoolShare.sol";
+import {IPoolShare, PoolShare} from "contracts/core/assets/PoolShare.sol";
 import {ISharesFactory} from "contracts/interfaces/ISharesFactory.sol";
-import {Market, MarketId, MarketLibrary} from "contracts/libraries/Market.sol";
+import {Market, MarketId} from "contracts/libraries/Market.sol";
 
 /**
  * @title Factory contract for shares (including PoolShare)
@@ -16,8 +16,6 @@ import {Market, MarketId, MarketLibrary} from "contracts/libraries/Market.sol";
  * @notice Factory contract for deploying shares contracts
  */
 contract SharesFactory is ISharesFactory, OwnableUpgradeable, UUPSUpgradeable {
-    using MarketLibrary for Market;
-
     string private constant CPT_PREFIX = "CPT";
     string private constant CST_PREFIX = "CST";
 
@@ -104,24 +102,18 @@ contract SharesFactory is ISharesFactory, OwnableUpgradeable, UUPSUpgradeable {
      * @return swapToken The address of the second deployed Swap token contract.
      */
     function deployPoolShares(DeployParams calldata params) external override onlyCorkPool returns (address principalToken, address swapToken) {
-        require(params.swapRate > 0, InvalidRate());
-        MarketId poolId = params.poolParams.toId();
+        (string memory name, string memory symbol) = _generateSymbolWithVariant(params.poolParams.collateralAsset, params.poolParams.referenceAsset, params.poolParams.expiryTimestamp, CPT_PREFIX);
+        IPoolShare.ConstructorParams memory constructorParams = IPoolShare.ConstructorParams(params.poolId, params.poolParams.expiryTimestamp, name, symbol, params.owner);
 
-        {
-            (string memory name, string memory symbol) = _generateSymbolWithVariant(params.poolParams.collateralAsset, params.poolParams.referenceAsset, params.poolParams.expiryTimestamp, CPT_PREFIX);
-            principalToken = address(new PoolShare(name, symbol, params.owner, params.poolParams.expiryTimestamp, params.swapRate));
+        principalToken = address(new PoolShare(constructorParams));
 
-            PoolShare(principalToken).setPoolManager(data().corkPool);
-            PoolShare(principalToken).setPoolId(poolId);
+        (name, symbol) = _generateSymbolWithVariant(params.poolParams.collateralAsset, params.poolParams.referenceAsset, params.poolParams.expiryTimestamp, CST_PREFIX);
+        constructorParams.pairName = name;
+        constructorParams.symbol = symbol;
 
-            (name, symbol) = _generateSymbolWithVariant(params.poolParams.collateralAsset, params.poolParams.referenceAsset, params.poolParams.expiryTimestamp, CST_PREFIX);
-            swapToken = address(new PoolShare(name, symbol, params.owner, params.poolParams.expiryTimestamp, params.swapRate));
+        swapToken = address(new PoolShare(constructorParams));
 
-            PoolShare(swapToken).setPoolManager(data().corkPool);
-            PoolShare(swapToken).setPoolId(poolId);
-        }
-
-        data().swapShares[poolId] = SwapPair(principalToken, swapToken);
+        data().swapShares[params.poolId] = SwapPair(principalToken, swapToken);
         data().deployed[principalToken] = true;
         data().deployed[swapToken] = true;
 

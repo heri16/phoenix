@@ -2,9 +2,9 @@ pragma solidity ^0.8.30;
 
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
-import {PoolShare} from "contracts/core/assets/PoolShare.sol";
+import {IPoolShare, PoolShare} from "contracts/core/assets/PoolShare.sol";
 import {IErrors} from "contracts/interfaces/IErrors.sol";
-import {Market, MarketId, MarketLibrary} from "contracts/libraries/Market.sol";
+import {Market, MarketId} from "contracts/libraries/Market.sol";
 import {Helper} from "test/forge/Helper.sol";
 import {ERC20Mock} from "test/mocks/ERC20Mock.sol";
 
@@ -16,6 +16,7 @@ contract SharesTest is Helper {
     PoolShare share;
 
     MarketId poolId;
+    IPoolShare.ConstructorParams constructorParams;
 
     address user1;
 
@@ -30,7 +31,13 @@ contract SharesTest is Helper {
 
         vm.startPrank(DEFAULT_ADDRESS);
 
-        deployContracts(DEFAULT_ADDRESS, DEFAULT_ADDRESS);
+        deployContracts(DEFAULT_ADDRESS, DEFAULT_ADDRESS, DEFAULT_ADDRESS);
+
+        constructorParams.poolId = MarketId.wrap(bytes32(""));
+        constructorParams.expiry = block.timestamp + 1 days;
+        constructorParams.pairName = "Swap Token";
+        constructorParams.symbol = "SWT";
+        constructorParams.poolManager = address(1);
 
         (collateralAsset, referenceAsset, poolId) = createMarket(block.timestamp + 1 days);
         vm.deal(DEFAULT_ADDRESS, 100_000_000_000 ether);
@@ -46,7 +53,7 @@ contract SharesTest is Helper {
         principalToken = PoolShare(_ct);
         swapToken = PoolShare(_swapToken);
 
-        share = new PoolShare("pairName", "symbol", user1, block.timestamp + 1, 12_345);
+        share = new PoolShare(constructorParams);
     }
 
     function fetchProtocolGeneralInfo() internal {
@@ -64,21 +71,11 @@ contract SharesTest is Helper {
     }
 
     // ------------------------------- Constructor ----------------------------------- //
-    function test_ConstructorShouldRevertWhenPassedInvalidData() external {
-        vm.warp(block.timestamp + 10);
-        try new PoolShare("pairName", "symbol", DEFAULT_ADDRESS, block.timestamp - 2, 1) {
-            // should not reach here
-            vm.assertEq(true, false);
-        } catch (bytes memory reason) {
-            // Verify it's the correct error
-            bytes4 selector = bytes4(reason);
-            vm.assertEq(selector, IErrors.InvalidExpiry.selector);
-        }
-    }
-
     function test_ConstructorShouldRevertWhenPassedInvalidExpiry() external {
         vm.warp(block.timestamp + 10);
-        try new PoolShare("pairName", "symbol", DEFAULT_ADDRESS, 0, 1) {
+        constructorParams.expiry = block.timestamp;
+
+        try new PoolShare(constructorParams) {
             // should not reach here
             vm.assertEq(true, false);
         } catch (bytes memory reason) {
@@ -90,7 +87,8 @@ contract SharesTest is Helper {
 
     function test_ConstructorShouldRevertWhenPassedInvalidOwner() external {
         vm.warp(block.timestamp + 10);
-        try new PoolShare("pairName", "symbol", address(0), block.timestamp + 1, 1) {
+        constructorParams.poolManager = address(0);
+        try new PoolShare(constructorParams) {
             // should not reach here
             vm.assertEq(true, false);
         } catch (bytes memory reason) {
@@ -101,27 +99,24 @@ contract SharesTest is Helper {
     }
 
     function test_ConstructorShouldWorkCorrectly() external {
-        // swap rate
-        assertEq(share.swapRate(), 12_345);
-
         // expiry
-        assertEq(share.expiry(), block.timestamp + 1);
+        assertEq(share.expiry(), block.timestamp + 1 days);
         assertEq(share.issuedAt(), block.timestamp);
         assertEq(share.isExpired(), false);
 
         // PoolShare
-        assertEq(share.pairName(), "pairName");
-        assertEq(address(share.poolManager()), address(0));
+        assertEq(share.pairName(), "Swap Token");
+        assertEq(address(share.poolManager()), address(1));
         assertEq(share.factory(), DEFAULT_ADDRESS);
-        assertEq(share.owner(), user1);
+        assertEq(share.owner(), address(1));
 
         // ERC20
         assertEq(share.totalSupply(), 0);
         assertEq(share.balanceOf(DEFAULT_ADDRESS), 0);
         assertEq(share.allowance(DEFAULT_ADDRESS, address(corkPool)), 0);
         assertEq(share.decimals(), 18);
-        assertEq(share.symbol(), "symbol");
-        assertEq(share.name(), "pairName");
+        assertEq(share.symbol(), "SWT");
+        assertEq(share.name(), "Swap Token");
     }
     //-----------------------------------------------------------------------------------------------------//
 
@@ -129,7 +124,7 @@ contract SharesTest is Helper {
     function test_IsExpiredShouldReturnCorrectValue() external {
         assertFalse(share.isExpired());
 
-        vm.warp(block.timestamp + 10);
+        vm.warp(block.timestamp + 10 days);
         assertTrue(share.isExpired());
     }
     //-----------------------------------------------------------------------------------------------------//
@@ -154,25 +149,6 @@ contract SharesTest is Helper {
     }
     // ----------------------------------------------------------------------------------------------------//
 
-    //---------------------------------- SetCorkPool ----------------------------------//
-    function test_SetCorkPoolShouldRevertWhenCalledByNonFactory() external {
-        vm.startPrank(user1);
-        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, user1));
-        share.setPoolManager(address(0));
-        vm.stopPrank();
-    }
-
-    function test_SetCorkPoolShouldWorkCorrectly() external {
-        assertEq(address(share.poolManager()), address(0));
-
-        vm.startPrank(DEFAULT_ADDRESS);
-        share.setPoolManager(address(corkPool));
-        vm.stopPrank();
-
-        assertEq(address(share.poolManager()), address(corkPool));
-    }
-    // -------------------------------------------------------------------------------------------------------//
-
     //------------------------------------------------- Mint -------------------------------------------------//
     function test_MintShouldRevertWhenCalledByNonOwner() external {
         vm.startPrank(DEFAULT_ADDRESS);
@@ -184,32 +160,13 @@ contract SharesTest is Helper {
     function test_MintShouldWorkCorrectly() external {
         assertEq(share.balanceOf(DEFAULT_ADDRESS), 0);
 
-        vm.startPrank(user1);
+        vm.startPrank(address(1));
         share.mint(DEFAULT_ADDRESS, 1.234 ether);
         vm.stopPrank();
 
         assertEq(share.balanceOf(DEFAULT_ADDRESS), 1.234 ether);
     }
 
-    // ----------------------------------------------------------------------------------------------------//
-
-    //-------------------------------------------- UpdateRate ---------------------------------------------//
-    function test_UpdateRateShouldRevertWhenCalledByNonOwner() external {
-        vm.startPrank(DEFAULT_ADDRESS);
-        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, DEFAULT_ADDRESS));
-        share.updateSwapRate(1.234 ether);
-        vm.stopPrank();
-    }
-
-    function test_UpdateRateShouldWorkCorrectly() external {
-        assertEq(share.swapRate(), 12_345);
-
-        vm.startPrank(user1);
-        share.updateSwapRate(1.234 ether);
-        vm.stopPrank();
-
-        assertEq(share.swapRate(), 1.234 ether);
-    }
     // ----------------------------------------------------------------------------------------------------//
 
     //------------------------------------------------- getReserves -------------------------------------------------//
@@ -245,7 +202,7 @@ contract SharesTest is Helper {
 
     function test_TransferFromShouldWorkCorrectlyWhenSenderIsOwner() external {
         // Setup: mint some tokens to user1
-        vm.startPrank(user1);
+        vm.startPrank(address(1));
         share.mint(user1, 10 ether);
         vm.stopPrank();
 
@@ -253,7 +210,7 @@ contract SharesTest is Helper {
         assertEq(share.balanceOf(DEFAULT_ADDRESS), 0);
 
         // Transfer from user1 to DEFAULT_ADDRESS
-        vm.prank(user1);
+        vm.prank(address(1));
         share.transferFrom(user1, user1, DEFAULT_ADDRESS, 5 ether);
 
         assertEq(share.balanceOf(user1), 5 ether);
@@ -264,15 +221,16 @@ contract SharesTest is Helper {
         address spender = makeAddr("spender");
 
         // Setup: mint tokens and approve spender
-        vm.startPrank(user1);
+        vm.startPrank(address(1));
         share.mint(user1, 10 ether);
+        vm.startPrank(user1);
+
         share.approve(spender, 5 ether);
-        vm.stopPrank();
 
         assertEq(share.allowance(user1, spender), 5 ether);
 
+        vm.startPrank(address(1));
         // Transfer using spender address
-        vm.prank(user1);
         share.transferFrom(spender, user1, DEFAULT_ADDRESS, 3 ether);
 
         assertEq(share.allowance(user1, spender), 2 ether);
@@ -284,7 +242,7 @@ contract SharesTest is Helper {
         address spender = makeAddr("spender");
 
         // Setup: mint tokens and approve spender
-        vm.startPrank(user1);
+        vm.startPrank(address(1));
         share.mint(user1, 10 ether);
         share.approve(spender, 2 ether);
         vm.stopPrank();
@@ -315,7 +273,7 @@ contract SharesTest is Helper {
         vm.expectEmit(true, true, false, true);
         emit Deposit(sender, receiver, assets, shares);
 
-        vm.startPrank(user1);
+        vm.startPrank(address(1));
         share.emitDeposit(sender, receiver, assets, shares);
         vm.stopPrank();
     }
@@ -340,7 +298,7 @@ contract SharesTest is Helper {
         vm.expectEmit(true, true, true, true);
         emit Withdraw(sender, receiver, owner, assets, shares);
 
-        vm.startPrank(user1);
+        vm.startPrank(address(1));
         share.emitWithdraw(sender, receiver, owner, assets, shares);
         vm.stopPrank();
     }
@@ -356,7 +314,7 @@ contract SharesTest is Helper {
         vm.expectEmit(true, true, true, true);
         emit Withdraw(sender, receiver, owner, assets, shares);
 
-        vm.startPrank(user1);
+        vm.startPrank(address(1));
         share.emitWithdraw(sender, receiver, owner, assets, shares);
         vm.stopPrank();
     }

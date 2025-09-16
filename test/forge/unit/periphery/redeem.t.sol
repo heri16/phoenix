@@ -2,17 +2,16 @@
 pragma solidity ^0.8.30;
 
 import {Helper} from "../../Helper.sol";
-
 import {PoolShare} from "contracts/core/assets/PoolShare.sol";
+import {ICorkPoolAdapter} from "contracts/interfaces/ICorkPoolAdapter.sol";
 import {IErrors} from "contracts/interfaces/IErrors.sol";
 import {MarketId} from "contracts/libraries/Market.sol";
 import {TransferHelper} from "contracts/libraries/TransferHelper.sol";
 import {CorkPoolAdapter} from "contracts/periphery/CorkPoolAdapter.sol";
 import {ErrorsLib} from "contracts/periphery/bundler3/libraries/ErrorsLib.sol";
-import {ERC20Mock} from "test/mocks/ERC20Mock.sol";
-
 import {console} from "forge-std/console.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/interfaces/IERC20.sol";
+import {ERC20Mock} from "test/mocks/ERC20Mock.sol";
 
 contract CorkPoolAdapterRedeemTest is Helper {
     address constant RECEIVER = address(0x123);
@@ -35,7 +34,7 @@ contract CorkPoolAdapterRedeemTest is Helper {
 
     function setUp() public {
         vm.startPrank(DEFAULT_ADDRESS);
-        deployContracts(DEFAULT_ADDRESS, DEFAULT_ADDRESS);
+        deployContracts(DEFAULT_ADDRESS, DEFAULT_ADDRESS, DEFAULT_ADDRESS);
         deployPeriphery();
         vm.stopPrank();
     }
@@ -85,7 +84,7 @@ contract CorkPoolAdapterRedeemTest is Helper {
 
         // First deposit to get CPT tokens
         collateralAsset.transfer(address(corkPoolAdapter), depositAmount);
-        corkPoolAdapter.safeDeposit(defaultCurrencyId, depositAmount, RECEIVER, 0, block.timestamp + 1);
+        corkPoolAdapter.safeDeposit(ICorkPoolAdapter.SafeDepositParams({poolId: defaultCurrencyId, assets: depositAmount, receiver: RECEIVER, minSharesOut: 0, deadline: block.timestamp + 1}));
 
         // Fast forward to expiry
         vm.warp(block.timestamp + EXPIRY + 1);
@@ -102,7 +101,7 @@ contract CorkPoolAdapterRedeemTest is Helper {
         Balances memory balancesBefore = getBalances();
 
         vm.startPrank(DEFAULT_ADDRESS);
-        corkPoolAdapter.safeRedeem(defaultCurrencyId, redeemAmount, address(corkPoolAdapter), RECEIVER, 0, 0, block.timestamp + 1);
+        corkPoolAdapter.safeRedeem(ICorkPoolAdapter.SafeRedeemParams({poolId: defaultCurrencyId, cptShares: redeemAmount, owner: address(corkPoolAdapter), receiver: RECEIVER, minReferenceAssetsOut: 0, minCollateralAssetsOut: 0, deadline: block.timestamp + 1}));
 
         Balances memory balancesAfter = getBalances();
 
@@ -125,7 +124,7 @@ contract CorkPoolAdapterRedeemTest is Helper {
 
         // First deposit to get CPT tokens
         collateralAsset.transfer(address(corkPoolAdapter), depositAmount);
-        corkPoolAdapter.safeDeposit(defaultCurrencyId, depositAmount, RECEIVER, 0, block.timestamp + 1);
+        corkPoolAdapter.safeDeposit(ICorkPoolAdapter.SafeDepositParams({poolId: defaultCurrencyId, assets: depositAmount, receiver: RECEIVER, minSharesOut: 0, deadline: block.timestamp + 1}));
 
         // Fast forward to expiry
         vm.warp(block.timestamp + EXPIRY + 1);
@@ -143,7 +142,7 @@ contract CorkPoolAdapterRedeemTest is Helper {
 
         vm.startPrank(DEFAULT_ADDRESS);
         mockBundler.setInitiator(RECEIVER);
-        corkPoolAdapter.safeRedeem(defaultCurrencyId, redeemAmount, RECEIVER, RECEIVER, 0, 0, block.timestamp + 1);
+        corkPoolAdapter.safeRedeem(ICorkPoolAdapter.SafeRedeemParams({poolId: defaultCurrencyId, cptShares: redeemAmount, owner: RECEIVER, receiver: RECEIVER, minReferenceAssetsOut: 0, minCollateralAssetsOut: 0, deadline: block.timestamp + 1}));
 
         Balances memory balancesAfter = getBalances();
 
@@ -165,7 +164,7 @@ contract CorkPoolAdapterRedeemTest is Helper {
 
         // First deposit to get CPT tokens
         collateralAsset.transfer(address(corkPoolAdapter), depositAmount);
-        corkPoolAdapter.safeDeposit(defaultCurrencyId, depositAmount, RECEIVER, 0, block.timestamp + 1);
+        corkPoolAdapter.safeDeposit(ICorkPoolAdapter.SafeDepositParams({poolId: defaultCurrencyId, assets: depositAmount, receiver: RECEIVER, minSharesOut: 0, deadline: block.timestamp + 1}));
 
         // Fast forward to expiry
         vm.warp(block.timestamp + EXPIRY + 1);
@@ -183,7 +182,7 @@ contract CorkPoolAdapterRedeemTest is Helper {
         Balances memory balancesBefore = getBalances();
 
         vm.startPrank(DEFAULT_ADDRESS);
-        corkPoolAdapter.safeRedeem(defaultCurrencyId, type(uint256).max, address(corkPoolAdapter), RECEIVER, 0, 0, block.timestamp + 1);
+        corkPoolAdapter.safeRedeem(ICorkPoolAdapter.SafeRedeemParams({poolId: defaultCurrencyId, cptShares: type(uint256).max, owner: address(corkPoolAdapter), receiver: RECEIVER, minReferenceAssetsOut: 0, minCollateralAssetsOut: 0, deadline: block.timestamp + 1}));
 
         Balances memory balancesAfter = getBalances();
 
@@ -208,7 +207,7 @@ contract CorkPoolAdapterRedeemTest is Helper {
 
         // First deposit to get CPT tokens
         collateralAsset.transfer(address(corkPoolAdapter), depositAmount);
-        corkPoolAdapter.safeDeposit(defaultCurrencyId, depositAmount, RECEIVER, 0, block.timestamp + 1);
+        corkPoolAdapter.safeDeposit(ICorkPoolAdapter.SafeDepositParams({poolId: defaultCurrencyId, assets: depositAmount, receiver: RECEIVER, minSharesOut: 0, deadline: block.timestamp + 1}));
 
         // Fast forward to expiry
         vm.warp(block.timestamp + EXPIRY + 1);
@@ -228,7 +227,7 @@ contract CorkPoolAdapterRedeemTest is Helper {
         vm.startPrank(DEFAULT_ADDRESS);
         mockBundler.setInitiator(RECEIVER);
 
-        corkPoolAdapter.safeRedeem(defaultCurrencyId, type(uint256).max, RECEIVER, RECEIVER, 0, 0, block.timestamp + 1);
+        corkPoolAdapter.safeRedeem(ICorkPoolAdapter.SafeRedeemParams({poolId: defaultCurrencyId, cptShares: type(uint256).max, owner: RECEIVER, receiver: RECEIVER, minReferenceAssetsOut: 0, minCollateralAssetsOut: 0, deadline: block.timestamp + 1}));
 
         Balances memory balancesAfter = getBalances();
 
@@ -254,7 +253,7 @@ contract CorkPoolAdapterRedeemTest is Helper {
 
         // First deposit to get CPT tokens
         collateralAsset.transfer(address(corkPoolAdapter), depositAmount);
-        corkPoolAdapter.safeDeposit(defaultCurrencyId, depositAmount, RECEIVER, 0, block.timestamp + 1);
+        corkPoolAdapter.safeDeposit(ICorkPoolAdapter.SafeDepositParams({poolId: defaultCurrencyId, assets: depositAmount, receiver: RECEIVER, minSharesOut: 0, deadline: block.timestamp + 1}));
 
         // Fast forward to expiry
         vm.warp(block.timestamp + EXPIRY + 1);
@@ -268,10 +267,10 @@ contract CorkPoolAdapterRedeemTest is Helper {
         // Should revert with unrealistic minimum amounts
         vm.startPrank(DEFAULT_ADDRESS);
         vm.expectRevert(IErrors.SlippageExceeded.selector);
-        corkPoolAdapter.safeRedeem(defaultCurrencyId, redeemAmount, address(corkPoolAdapter), RECEIVER, type(uint256).max, 0, block.timestamp + 1);
+        corkPoolAdapter.safeRedeem(ICorkPoolAdapter.SafeRedeemParams({poolId: defaultCurrencyId, cptShares: redeemAmount, owner: address(corkPoolAdapter), receiver: RECEIVER, minReferenceAssetsOut: type(uint256).max, minCollateralAssetsOut: 0, deadline: block.timestamp + 1}));
 
         vm.expectRevert(IErrors.SlippageExceeded.selector);
-        corkPoolAdapter.safeRedeem(defaultCurrencyId, redeemAmount, address(corkPoolAdapter), RECEIVER, 0, type(uint256).max, block.timestamp + 1);
+        corkPoolAdapter.safeRedeem(ICorkPoolAdapter.SafeRedeemParams({poolId: defaultCurrencyId, cptShares: redeemAmount, owner: address(corkPoolAdapter), receiver: RECEIVER, minReferenceAssetsOut: 0, minCollateralAssetsOut: type(uint256).max, deadline: block.timestamp + 1}));
 
         vm.stopPrank();
     }
@@ -285,7 +284,7 @@ contract CorkPoolAdapterRedeemTest is Helper {
 
         // First deposit to get CPT tokens
         collateralAsset.transfer(address(corkPoolAdapter), depositAmount);
-        corkPoolAdapter.safeDeposit(defaultCurrencyId, depositAmount, RECEIVER, 0, block.timestamp + 1);
+        corkPoolAdapter.safeDeposit(ICorkPoolAdapter.SafeDepositParams({poolId: defaultCurrencyId, assets: depositAmount, receiver: RECEIVER, minSharesOut: 0, deadline: block.timestamp + 1}));
 
         // Fast forward to expiry
         vm.warp(block.timestamp + EXPIRY + 1);
@@ -298,7 +297,7 @@ contract CorkPoolAdapterRedeemTest is Helper {
 
         vm.startPrank(DEFAULT_ADDRESS);
         vm.expectRevert(IErrors.DeadlineExceeded.selector);
-        corkPoolAdapter.safeRedeem(defaultCurrencyId, redeemAmount, address(corkPoolAdapter), RECEIVER, 0, 0, block.timestamp - 1);
+        corkPoolAdapter.safeRedeem(ICorkPoolAdapter.SafeRedeemParams({poolId: defaultCurrencyId, cptShares: redeemAmount, owner: address(corkPoolAdapter), receiver: RECEIVER, minReferenceAssetsOut: 0, minCollateralAssetsOut: 0, deadline: block.timestamp - 1}));
 
         vm.stopPrank();
     }
@@ -308,10 +307,10 @@ contract CorkPoolAdapterRedeemTest is Helper {
         setupDifferentDecimals(18, 18);
 
         vm.expectRevert(ErrorsLib.UnexpectedOwner.selector);
-        corkPoolAdapter.safeRedeem(defaultCurrencyId, 100e18, address(0), RECEIVER, 0, 0, block.timestamp + 1);
+        corkPoolAdapter.safeRedeem(ICorkPoolAdapter.SafeRedeemParams({poolId: defaultCurrencyId, cptShares: 100e18, owner: address(0), receiver: RECEIVER, minReferenceAssetsOut: 0, minCollateralAssetsOut: 0, deadline: block.timestamp + 1}));
 
         vm.expectRevert(IErrors.ZeroAddress.selector);
-        corkPoolAdapter.safeRedeem(defaultCurrencyId, 100e18, address(corkPoolAdapter), address(0), 0, 0, block.timestamp + 1);
+        corkPoolAdapter.safeRedeem(ICorkPoolAdapter.SafeRedeemParams({poolId: defaultCurrencyId, cptShares: 100e18, owner: address(corkPoolAdapter), receiver: address(0), minReferenceAssetsOut: 0, minCollateralAssetsOut: 0, deadline: block.timestamp + 1}));
 
         vm.stopPrank();
     }
@@ -321,7 +320,7 @@ contract CorkPoolAdapterRedeemTest is Helper {
         setupDifferentDecimals(18, 18);
 
         vm.expectRevert(ErrorsLib.ZeroShares.selector);
-        corkPoolAdapter.safeRedeem(defaultCurrencyId, 0, address(corkPoolAdapter), RECEIVER, 0, 0, block.timestamp + 1);
+        corkPoolAdapter.safeRedeem(ICorkPoolAdapter.SafeRedeemParams({poolId: defaultCurrencyId, cptShares: 0, owner: address(corkPoolAdapter), receiver: RECEIVER, minReferenceAssetsOut: 0, minCollateralAssetsOut: 0, deadline: block.timestamp + 1}));
 
         vm.stopPrank();
     }
@@ -335,7 +334,7 @@ contract CorkPoolAdapterRedeemTest is Helper {
 
         // First deposit to get CPT tokens
         collateralAsset.transfer(address(corkPoolAdapter), depositAmount);
-        corkPoolAdapter.safeDeposit(defaultCurrencyId, depositAmount, RECEIVER, 0, block.timestamp + 1);
+        corkPoolAdapter.safeDeposit(ICorkPoolAdapter.SafeDepositParams({poolId: defaultCurrencyId, assets: depositAmount, receiver: RECEIVER, minSharesOut: 0, deadline: block.timestamp + 1}));
 
         // Fast forward to expiry
         vm.warp(block.timestamp + EXPIRY + 1);
@@ -357,7 +356,7 @@ contract CorkPoolAdapterRedeemTest is Helper {
         Balances memory balancesBefore = getBalances();
 
         vm.startPrank(DEFAULT_ADDRESS);
-        corkPoolAdapter.safeRedeem(defaultCurrencyId, redeemAmount, address(corkPoolAdapter), RECEIVER, 0, 0, block.timestamp + 1);
+        corkPoolAdapter.safeRedeem(ICorkPoolAdapter.SafeRedeemParams({poolId: defaultCurrencyId, cptShares: redeemAmount, owner: address(corkPoolAdapter), receiver: RECEIVER, minReferenceAssetsOut: 0, minCollateralAssetsOut: 0, deadline: block.timestamp + 1}));
 
         Balances memory balancesAfter = getBalances();
 
@@ -383,7 +382,7 @@ contract CorkPoolAdapterRedeemTest is Helper {
 
         // First deposit to get CPT tokens
         collateralAsset.transfer(address(corkPoolAdapter), depositAmount);
-        corkPoolAdapter.safeDeposit(defaultCurrencyId, depositAmount, RECEIVER, 0, block.timestamp + 1);
+        corkPoolAdapter.safeDeposit(ICorkPoolAdapter.SafeDepositParams({poolId: defaultCurrencyId, assets: depositAmount, receiver: RECEIVER, minSharesOut: 0, deadline: block.timestamp + 1}));
 
         // Fast forward to expiry
         vm.warp(block.timestamp + EXPIRY + 1);
@@ -409,8 +408,7 @@ contract CorkPoolAdapterRedeemTest is Helper {
 
         vm.startPrank(DEFAULT_ADDRESS);
 
-        if (expectedCollateralOut == 0 && expectedReferenceOut == 0 && redeemAmount > 0) vm.expectRevert(abi.encodeWithSelector(IErrors.ZeroOutput.selector));
-        corkPoolAdapter.safeRedeem(defaultCurrencyId, redeemAmount, address(corkPoolAdapter), RECEIVER, 0, 0, block.timestamp + 1);
+        corkPoolAdapter.safeRedeem(ICorkPoolAdapter.SafeRedeemParams({poolId: defaultCurrencyId, cptShares: redeemAmount, owner: address(corkPoolAdapter), receiver: RECEIVER, minReferenceAssetsOut: 0, minCollateralAssetsOut: 0, deadline: block.timestamp + 1}));
 
         Balances memory balancesAfter = getBalances();
 
@@ -436,7 +434,7 @@ contract CorkPoolAdapterRedeemTest is Helper {
 
         // First deposit to get CPT tokens
         collateralAsset.transfer(address(corkPoolAdapter), depositAmount);
-        corkPoolAdapter.safeDeposit(defaultCurrencyId, depositAmount, RECEIVER, 0, block.timestamp + 1);
+        corkPoolAdapter.safeDeposit(ICorkPoolAdapter.SafeDepositParams({poolId: defaultCurrencyId, assets: depositAmount, receiver: RECEIVER, minSharesOut: 0, deadline: block.timestamp + 1}));
 
         // Fast forward to expiry
         vm.warp(block.timestamp + EXPIRY + 1);
@@ -457,7 +455,7 @@ contract CorkPoolAdapterRedeemTest is Helper {
         Balances memory balancesBefore = getBalances();
 
         vm.startPrank(DEFAULT_ADDRESS);
-        corkPoolAdapter.safeRedeem(defaultCurrencyId, type(uint256).max, address(corkPoolAdapter), RECEIVER, 0, 0, block.timestamp + 1);
+        corkPoolAdapter.safeRedeem(ICorkPoolAdapter.SafeRedeemParams({poolId: defaultCurrencyId, cptShares: type(uint256).max, owner: address(corkPoolAdapter), receiver: RECEIVER, minReferenceAssetsOut: 0, minCollateralAssetsOut: 0, deadline: block.timestamp + 1}));
 
         Balances memory balancesAfter = getBalances();
 
@@ -486,7 +484,7 @@ contract CorkPoolAdapterRedeemTest is Helper {
         // Setup: Deposit exactly 10 ether to get 10 ether of CPT tokens
         uint256 depositAmount = 10 ether;
         collateralAsset.transfer(address(corkPoolAdapter), depositAmount);
-        corkPoolAdapter.safeDeposit(defaultCurrencyId, depositAmount, RECEIVER, 0, block.timestamp + 1);
+        corkPoolAdapter.safeDeposit(ICorkPoolAdapter.SafeDepositParams({poolId: defaultCurrencyId, assets: depositAmount, receiver: RECEIVER, minSharesOut: 0, deadline: block.timestamp + 1}));
 
         // Verify initial state: RECEIVER should have 10 ether of CPT tokens
         uint256 cptBalance = principalToken.balanceOf(RECEIVER);
@@ -514,7 +512,7 @@ contract CorkPoolAdapterRedeemTest is Helper {
         uint256 receiverReferenceBefore = referenceAsset.balanceOf(RECEIVER);
 
         vm.startPrank(DEFAULT_ADDRESS);
-        corkPoolAdapter.safeRedeem(defaultCurrencyId, redeemAmount, address(corkPoolAdapter), RECEIVER, 0, 0, block.timestamp + 1);
+        corkPoolAdapter.safeRedeem(ICorkPoolAdapter.SafeRedeemParams({poolId: defaultCurrencyId, cptShares: redeemAmount, owner: address(corkPoolAdapter), receiver: RECEIVER, minReferenceAssetsOut: 0, minCollateralAssetsOut: 0, deadline: block.timestamp + 1}));
 
         uint256 receiverCollateralAfter = collateralAsset.balanceOf(RECEIVER);
         uint256 receiverReferenceAfter = referenceAsset.balanceOf(RECEIVER);

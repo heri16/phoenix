@@ -2,9 +2,8 @@
 pragma solidity ^0.8.30;
 
 import {Helper} from "../../Helper.sol";
-
 import {PoolShare} from "contracts/core/assets/PoolShare.sol";
-import {IErrors} from "contracts/interfaces/IErrors.sol";
+import {ICorkPoolAdapter} from "contracts/interfaces/ICorkPoolAdapter.sol";
 import {MarketId} from "contracts/libraries/Market.sol";
 import {TransferHelper} from "contracts/libraries/TransferHelper.sol";
 import {CorkPoolAdapter} from "contracts/periphery/CorkPoolAdapter.sol";
@@ -34,7 +33,7 @@ contract CorkPoolAdapterWithdrawTest is Helper {
 
     function setUp() public {
         vm.startPrank(DEFAULT_ADDRESS);
-        deployContracts(DEFAULT_ADDRESS, DEFAULT_ADDRESS);
+        deployContracts(DEFAULT_ADDRESS, DEFAULT_ADDRESS, DEFAULT_ADDRESS);
         deployPeriphery();
         vm.stopPrank();
     }
@@ -101,7 +100,7 @@ contract CorkPoolAdapterWithdrawTest is Helper {
         uint256 receiverCollateralBefore = collateralAsset.balanceOf(RECEIVER);
         uint256 receiverReferenceBefore = referenceAsset.balanceOf(RECEIVER);
 
-        corkPoolAdapter.safeWithdraw(defaultCurrencyId, collateralOut, referenceOut, DEFAULT_ADDRESS, RECEIVER, cptBalance, block.timestamp);
+        corkPoolAdapter.safeWithdraw(ICorkPoolAdapter.SafeWithdrawParams({poolId: defaultCurrencyId, collateralAssets: collateralOut, referenceAssets: referenceOut, owner: DEFAULT_ADDRESS, receiver: RECEIVER, maxSharesIn: cptBalance, deadline: block.timestamp}));
 
         uint256 peripheryPTAfter = principalToken.balanceOf(address(corkPoolAdapter));
         uint256 receiverCollateralAfter = collateralAsset.balanceOf(RECEIVER);
@@ -129,7 +128,7 @@ contract CorkPoolAdapterWithdrawTest is Helper {
         uint256 receiverReferenceBefore = referenceAsset.balanceOf(RECEIVER);
 
         // because pool adapter have the balance, we set it as the owner
-        corkPoolAdapter.safeWithdraw(defaultCurrencyId, collateralOut, referenceOut, address(corkPoolAdapter), RECEIVER, cptBalance, block.timestamp);
+        corkPoolAdapter.safeWithdraw(ICorkPoolAdapter.SafeWithdrawParams({poolId: defaultCurrencyId, collateralAssets: collateralOut, referenceAssets: referenceOut, owner: address(corkPoolAdapter), receiver: RECEIVER, maxSharesIn: cptBalance, deadline: block.timestamp}));
 
         uint256 peripheryPTAfter = principalToken.balanceOf(address(corkPoolAdapter));
         uint256 receiverCollateralAfter = collateralAsset.balanceOf(RECEIVER);
@@ -156,7 +155,7 @@ contract CorkPoolAdapterWithdrawTest is Helper {
         uint256 receiverCollateralBefore = collateralAsset.balanceOf(RECEIVER);
         uint256 receiverReferenceBefore = referenceAsset.balanceOf(RECEIVER);
 
-        corkPoolAdapter.safeWithdraw(defaultCurrencyId, collateralOut, referenceOut, DEFAULT_ADDRESS, RECEIVER, cptBalance, block.timestamp);
+        corkPoolAdapter.safeWithdraw(ICorkPoolAdapter.SafeWithdrawParams({poolId: defaultCurrencyId, collateralAssets: collateralOut, referenceAssets: referenceOut, owner: DEFAULT_ADDRESS, receiver: RECEIVER, maxSharesIn: cptBalance, deadline: block.timestamp}));
 
         uint256 defaultAddressPTAfter = principalToken.balanceOf(DEFAULT_ADDRESS);
         uint256 receiverCollateralAfter = collateralAsset.balanceOf(RECEIVER);
@@ -177,7 +176,7 @@ contract CorkPoolAdapterWithdrawTest is Helper {
         uint256 referenceOut = 50e18; // Both non-zero should fail
 
         vm.expectRevert(ErrorsLib.ZeroAmount.selector);
-        corkPoolAdapter.safeWithdraw(defaultCurrencyId, collateralOut, referenceOut, DEFAULT_ADDRESS, RECEIVER, 1000e18, block.timestamp);
+        corkPoolAdapter.safeWithdraw(ICorkPoolAdapter.SafeWithdrawParams({poolId: defaultCurrencyId, collateralAssets: collateralOut, referenceAssets: referenceOut, owner: DEFAULT_ADDRESS, receiver: RECEIVER, maxSharesIn: 1000e18, deadline: block.timestamp}));
 
         vm.stopPrank();
     }
@@ -189,8 +188,8 @@ contract CorkPoolAdapterWithdrawTest is Helper {
         uint256 collateralOut = 0;
         uint256 referenceOut = 0; // Both zero should fail
 
-        vm.expectRevert(IErrors.ZeroAmount.selector);
-        corkPoolAdapter.safeWithdraw(defaultCurrencyId, collateralOut, referenceOut, DEFAULT_ADDRESS, RECEIVER, 1000e18, block.timestamp);
+        vm.expectRevert(ErrorsLib.ZeroAmount.selector);
+        corkPoolAdapter.safeWithdraw(ICorkPoolAdapter.SafeWithdrawParams({poolId: defaultCurrencyId, collateralAssets: collateralOut, referenceAssets: referenceOut, owner: DEFAULT_ADDRESS, receiver: RECEIVER, maxSharesIn: 1000e18, deadline: block.timestamp}));
 
         vm.stopPrank();
     }
@@ -199,8 +198,8 @@ contract CorkPoolAdapterWithdrawTest is Helper {
         vm.startPrank(DEFAULT_ADDRESS);
         setupWithShares();
 
-        vm.expectRevert(IErrors.ZeroAddress.selector);
-        corkPoolAdapter.safeWithdraw(defaultCurrencyId, 100e18, 0, DEFAULT_ADDRESS, address(0), 1000e18, block.timestamp);
+        vm.expectRevert(ErrorsLib.ZeroAddress.selector);
+        corkPoolAdapter.safeWithdraw(ICorkPoolAdapter.SafeWithdrawParams({poolId: defaultCurrencyId, collateralAssets: 100e18, referenceAssets: 0, owner: DEFAULT_ADDRESS, receiver: address(0), maxSharesIn: 1000e18, deadline: block.timestamp}));
 
         vm.stopPrank();
     }
@@ -210,7 +209,7 @@ contract CorkPoolAdapterWithdrawTest is Helper {
         setupWithShares();
 
         vm.expectRevert(ErrorsLib.UnexpectedOwner.selector);
-        corkPoolAdapter.safeWithdraw(defaultCurrencyId, 100e18, 0, address(0), RECEIVER, 1000e18, block.timestamp);
+        corkPoolAdapter.safeWithdraw(ICorkPoolAdapter.SafeWithdrawParams({poolId: defaultCurrencyId, collateralAssets: 100e18, referenceAssets: 0, owner: address(0), receiver: RECEIVER, maxSharesIn: 1000e18, deadline: block.timestamp}));
 
         vm.stopPrank();
     }
@@ -219,8 +218,8 @@ contract CorkPoolAdapterWithdrawTest is Helper {
         vm.startPrank(DEFAULT_ADDRESS);
         setupWithShares();
 
-        vm.expectRevert(IErrors.DeadlineExceeded.selector);
-        corkPoolAdapter.safeWithdraw(defaultCurrencyId, 100e18, 0, DEFAULT_ADDRESS, RECEIVER, 1000e18, block.timestamp - 1);
+        vm.expectRevert(ErrorsLib.DeadlineExceeded.selector);
+        corkPoolAdapter.safeWithdraw(ICorkPoolAdapter.SafeWithdrawParams({poolId: defaultCurrencyId, collateralAssets: 100e18, referenceAssets: 0, owner: DEFAULT_ADDRESS, receiver: RECEIVER, maxSharesIn: 1000e18, deadline: block.timestamp - 1}));
 
         vm.stopPrank();
     }
@@ -239,8 +238,8 @@ contract CorkPoolAdapterWithdrawTest is Helper {
         // Set maxSharesIn to a very low value to trigger slippage
         uint256 maxSharesIn = 1; // Much lower than expected shares needed
 
-        vm.expectRevert(IErrors.SlippageExceeded.selector);
-        corkPoolAdapter.safeWithdraw(defaultCurrencyId, collateralOut, referenceOut, DEFAULT_ADDRESS, RECEIVER, maxSharesIn, block.timestamp);
+        vm.expectRevert(ErrorsLib.SlippageExceeded.selector);
+        corkPoolAdapter.safeWithdraw(ICorkPoolAdapter.SafeWithdrawParams({poolId: defaultCurrencyId, collateralAssets: collateralOut, referenceAssets: referenceOut, owner: DEFAULT_ADDRESS, receiver: RECEIVER, maxSharesIn: maxSharesIn, deadline: block.timestamp}));
 
         vm.stopPrank();
     }
@@ -251,8 +250,8 @@ contract CorkPoolAdapterWithdrawTest is Helper {
         vm.stopPrank();
 
         vm.prank(address(0x999));
-        vm.expectRevert(IErrors.UnauthorizedSender.selector);
-        corkPoolAdapter.safeWithdraw(defaultCurrencyId, 100e18, 0, DEFAULT_ADDRESS, RECEIVER, 1000e18, block.timestamp);
+        vm.expectRevert(ErrorsLib.UnauthorizedSender.selector);
+        corkPoolAdapter.safeWithdraw(ICorkPoolAdapter.SafeWithdrawParams({poolId: defaultCurrencyId, collateralAssets: 100e18, referenceAssets: 0, owner: DEFAULT_ADDRESS, receiver: RECEIVER, maxSharesIn: 1000e18, deadline: block.timestamp}));
     }
 
     function testFuzz_withdraw_differentDecimals(uint8 raDecimals, uint8 paDecimals, uint256 collateralOut) public {
@@ -295,7 +294,7 @@ contract CorkPoolAdapterWithdrawTest is Helper {
             cork: collateralAsset.balanceOf(address(corkPool))
         });
 
-        corkPoolAdapter.safeWithdraw(defaultCurrencyId, collateralOut, 0, address(corkPoolAdapter), RECEIVER, cptBalance, block.timestamp);
+        corkPoolAdapter.safeWithdraw(ICorkPoolAdapter.SafeWithdrawParams({poolId: defaultCurrencyId, collateralAssets: collateralOut, referenceAssets: 0, owner: address(corkPoolAdapter), receiver: RECEIVER, maxSharesIn: cptBalance, deadline: block.timestamp}));
 
         Balances memory _after = Balances({
             periphery: principalToken.balanceOf(address(corkPoolAdapter)),
@@ -331,7 +330,7 @@ contract CorkPoolAdapterWithdrawTest is Helper {
         uint256 receiverCollateralBefore = collateralAsset.balanceOf(RECEIVER);
         uint256 corkCollateralBefore = collateralAsset.balanceOf(address(corkPool));
 
-        corkPoolAdapter.safeWithdraw(defaultCurrencyId, collateralOut, 0, DEFAULT_ADDRESS, RECEIVER, cptBalance, block.timestamp);
+        corkPoolAdapter.safeWithdraw(ICorkPoolAdapter.SafeWithdrawParams({poolId: defaultCurrencyId, collateralAssets: collateralOut, referenceAssets: 0, owner: DEFAULT_ADDRESS, receiver: RECEIVER, maxSharesIn: cptBalance, deadline: block.timestamp}));
 
         uint256 totalCollateralSupplyAfter = collateralAsset.totalSupply();
         uint256 peripheryCollateralAfter = collateralAsset.balanceOf(address(corkPoolAdapter));

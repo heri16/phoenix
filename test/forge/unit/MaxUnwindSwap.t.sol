@@ -4,6 +4,7 @@ pragma solidity ^0.8.30;
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IErrors} from "contracts/interfaces/IErrors.sol";
 import {IPoolManager} from "contracts/interfaces/IPoolManager.sol";
+import {IUnwindSwap} from "contracts/interfaces/IUnwindSwap.sol";
 import {MarketId} from "contracts/libraries/Market.sol";
 import {Helper} from "test/forge/Helper.sol";
 import {ERC20Mock} from "test/mocks/ERC20Mock.sol";
@@ -25,7 +26,7 @@ contract MaxUnwindSwapTest is Helper {
 
     function setUp() public {
         vm.startPrank(DEFAULT_ADDRESS);
-        deployContracts(DEFAULT_ADDRESS, DEFAULT_ADDRESS);
+        deployContracts(DEFAULT_ADDRESS, DEFAULT_ADDRESS, DEFAULT_ADDRESS);
         (collateralAsset, referenceAsset, marketId) = createMarket(1 days);
 
         vm.deal(user, type(uint256).max);
@@ -81,9 +82,9 @@ contract MaxUnwindSwapTest is Helper {
         // Should return a reasonable amount
         assertGt(maxAmount, 0, "Max unwind swap should be greater than 0");
 
-        (uint256 receivedRef, uint256 receivedSwap,,,) = corkPool.previewUnwindSwap(marketId, maxAmount);
-        assertGt(receivedRef, 0, "Should receive reference asset");
-        assertGt(receivedSwap, 0, "Should receive swap token");
+        IUnwindSwap.UnwindSwapReturnParams memory previewReturnParams = corkPool.previewUnwindSwap(marketId, maxAmount);
+        assertGt(previewReturnParams.receivedReferenceAsset, 0, "Should receive reference asset");
+        assertGt(previewReturnParams.receivedSwapToken, 0, "Should receive swap token");
     }
 
     function test_maxUnwindSwap_WhenUnwindSwapPaused() external {
@@ -140,11 +141,11 @@ contract MaxUnwindSwapTest is Helper {
         uint256 maxAmount = corkPool.maxUnwindSwap(marketId, user);
 
         // Test that maxAmount should work without reverting
-        (uint256 receivedRef, uint256 receivedSwap,,,) = corkPool.previewUnwindSwap(marketId, maxAmount);
+        IUnwindSwap.UnwindSwapReturnParams memory previewReturnParams = corkPool.previewUnwindSwap(marketId, maxAmount);
 
         // Verify the preview returns reasonable values
-        assertGt(receivedRef, 0, "Should receive reference asset");
-        assertGt(receivedSwap, 0, "Should receive swap token");
+        assertGt(previewReturnParams.receivedReferenceAsset, 0, "Should receive reference asset");
+        assertGt(previewReturnParams.receivedSwapToken, 0, "Should receive swap token");
     }
 
     // only works up to 10 decimals, need to re confirm
@@ -208,7 +209,7 @@ contract MaxUnwindSwapTest is Helper {
         uint256 initialSwapBalance = IERC20(swapToken).balanceOf(user);
 
         // Preview the unwind swap
-        (uint256 receivedRef, uint256 receivedSwap,,,) = corkPool.previewUnwindSwap(newMarketId, maxAmount);
+        IUnwindSwap.UnwindSwapReturnParams memory previewReturnParams = corkPool.previewUnwindSwap(newMarketId, maxAmount);
 
         // Perform the actual unwind swap
         vm.prank(user);
@@ -219,8 +220,8 @@ contract MaxUnwindSwapTest is Helper {
             uint256 finalRefBalance = IERC20(newReferenceAsset).balanceOf(user);
             uint256 finalSwapBalance = IERC20(swapToken).balanceOf(user);
 
-            assertEq(finalRefBalance - initialRefBalance, receivedRef, "Reference asset balance should match preview");
-            assertEq(finalSwapBalance - initialSwapBalance, receivedSwap, "Swap token balance should match preview");
+            assertEq(finalRefBalance - initialRefBalance, previewReturnParams.receivedReferenceAsset, "Reference asset balance should match preview");
+            assertEq(finalSwapBalance - initialSwapBalance, previewReturnParams.receivedSwapToken, "Swap token balance should match preview");
         }
 
         // Verify availableForUnwindSwap returns 0 for both values after max unwind
@@ -261,7 +262,7 @@ contract MaxUnwindSwapTest is Helper {
         uint256 initialSwapBalance = IERC20(swapToken).balanceOf(user);
 
         // Preview the unwind swap
-        (uint256 receivedRef, uint256 receivedSwap,,,) = corkPool.previewUnwindSwap(marketId, maxAmount);
+        IUnwindSwap.UnwindSwapReturnParams memory previewReturnParams = corkPool.previewUnwindSwap(marketId, maxAmount);
 
         // Perform the actual unwind swap
         vm.startPrank(user);
@@ -273,8 +274,8 @@ contract MaxUnwindSwapTest is Helper {
         uint256 finalRefBalance = IERC20(referenceAsset).balanceOf(user);
         uint256 finalSwapBalance = IERC20(swapToken).balanceOf(user);
 
-        assertEq(finalRefBalance - initialRefBalance, receivedRef, "Reference asset balance should match preview");
-        assertEq(finalSwapBalance - initialSwapBalance, receivedSwap, "Swap token balance should match preview");
+        assertEq(finalRefBalance - initialRefBalance, previewReturnParams.receivedReferenceAsset, "Reference asset balance should match preview");
+        assertEq(finalSwapBalance - initialSwapBalance, previewReturnParams.receivedSwapToken, "Swap token balance should match preview");
 
         // Verify availableForUnwindSwap returns 0 for both values after max unwind
         (uint256 availableRefAfter, uint256 availableSwapAfter) = corkPool.availableForUnwindSwap(marketId);
@@ -342,8 +343,8 @@ contract MaxUnwindSwapTest is Helper {
         uint256 maxAfterSwap = corkPool.maxUnwindSwap(marketId, user);
         assertGt(maxAfterSwap, 0, "Should be positive after swap and additional liquidity");
 
-        (uint256 receivedRef, uint256 receivedSwap,,,) = corkPool.previewUnwindSwap(marketId, maxAfterSwap);
-        assertGt(receivedRef, 0, "Should receive reference asset");
-        assertGt(receivedSwap, 0, "Should receive swap token");
+        IUnwindSwap.UnwindSwapReturnParams memory previewReturnParams = corkPool.previewUnwindSwap(marketId, maxAfterSwap);
+        assertGt(previewReturnParams.receivedReferenceAsset, 0, "Should receive reference asset");
+        assertGt(previewReturnParams.receivedSwapToken, 0, "Should receive swap token");
     }
 }

@@ -4,7 +4,9 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {PoolShare} from "contracts/core/assets/PoolShare.sol";
 import {IErrors} from "contracts/interfaces/IErrors.sol";
-import {Market, MarketId, MarketLibrary} from "contracts/libraries/Market.sol";
+import {IPoolManager} from "contracts/interfaces/IPoolManager.sol";
+import {IUnwindSwap} from "contracts/interfaces/IUnwindSwap.sol";
+import {Market, MarketId} from "contracts/libraries/Market.sol";
 import {TransferHelper} from "contracts/libraries/TransferHelper.sol";
 import {Helper} from "test/forge/Helper.sol";
 import {ERC20Mock} from "test/mocks/ERC20Mock.sol";
@@ -31,7 +33,7 @@ contract UnwindExerciseTest is Helper {
 
     function setUp() public {
         vm.startPrank(DEFAULT_ADDRESS);
-        deployContracts(DEFAULT_ADDRESS, DEFAULT_ADDRESS);
+        deployContracts(DEFAULT_ADDRESS, DEFAULT_ADDRESS, DEFAULT_ADDRESS);
 
         (collateralAsset, referenceAsset,) = createMarket(EXPIRY, 1 ether);
 
@@ -79,7 +81,7 @@ contract UnwindExerciseTest is Helper {
 
         // User2 exercises to provide Reference Asset and get some collateral out
         uint256 sharesToExercise = 500 ether;
-        corkPool.exercise(defaultCurrencyId, sharesToExercise, 0, user2, 0, type(uint256).max);
+        corkPool.exercise(IPoolManager.ExerciseParams({poolId: defaultCurrencyId, shares: sharesToExercise, compensation: 0, receiver: user2, minAssetsOut: 0, maxOtherAssetSpent: type(uint256).max}));
         vm.stopPrank();
 
         vm.startPrank(user3);
@@ -124,12 +126,14 @@ contract UnwindExerciseTest is Helper {
         BalanceSnapshot memory beforeSnapshot = takeBalanceSnapshot(user3);
 
         // Execute unwind exercise
-        (uint256 actualAssetIn, uint256 actualCompensationOut) = corkPool.unwindExercise(
-            defaultCurrencyId,
-            shares,
-            user3,
-            0, // minCompensationOut
-            type(uint256).max // maxAssetsIn
+        (uint256 actualAssetIn, uint256 actualCompensationOut, uint256 actualFee) = corkPool.unwindExercise(
+            IPoolManager.UnwindExerciseParams({
+                poolId: defaultCurrencyId,
+                shares: shares,
+                receiver: user3,
+                minCompensationOut: 0, // minCompensationOut
+                maxAssetsIn: type(uint256).max // maxAssetsIn
+            })
         );
 
         BalanceSnapshot memory afterSnapshot = takeBalanceSnapshot(user3);
@@ -198,7 +202,7 @@ contract UnwindExerciseTest is Helper {
 
         // Exercise to provide reference asset liquidity
         uint256 exerciseShares = initialDeposit / 4; // Exercise 25% of deposit
-        if (exerciseShares > 0) corkPool.exercise(_marketId, exerciseShares, 0, DEFAULT_ADDRESS, 0, type(uint256).max);
+        if (exerciseShares > 0) corkPool.exercise(IPoolManager.ExerciseParams({poolId: _marketId, shares: exerciseShares, compensation: 0, receiver: DEFAULT_ADDRESS, minAssetsOut: 0, maxOtherAssetSpent: type(uint256).max}));
 
         // Test preview
         if (shares <= _stSwapToken.balanceOf(DEFAULT_ADDRESS)) {
@@ -253,7 +257,7 @@ contract UnwindExerciseTest is Helper {
         uint256 exerciseShares = TransferHelper.tokenNativeDecimalsToFixed(DEFAULT_DEPOSIT_AMOUNT / 4, IERC20Metadata(swapTokenAddr).decimals());
         uint256 availableShares = IERC20(swapTokenAddr).balanceOf(DEFAULT_ADDRESS);
 
-        if (exerciseShares > 0 && exerciseShares <= availableShares) corkPool.exercise(marketId, exerciseShares, 0, DEFAULT_ADDRESS, 0, type(uint256).max);
+        if (exerciseShares > 0 && exerciseShares <= availableShares) corkPool.exercise(IPoolManager.ExerciseParams({poolId: marketId, shares: exerciseShares, compensation: 0, receiver: DEFAULT_ADDRESS, minAssetsOut: 0, maxOtherAssetSpent: type(uint256).max}));
 
         return swapTokenAddr;
     }
@@ -261,7 +265,7 @@ contract UnwindExerciseTest is Helper {
     function _executeAndVerifyUnwindExercise(MarketId marketId, uint256 shares, uint8 raDecimals) internal {
         (uint256 previewAssetIn, uint256 previewCompensationOut) = corkPool.previewUnwindExercise(marketId, shares);
 
-        (uint256 actualAssetIn, uint256 actualCompensationOut) = corkPool.unwindExercise(marketId, shares, DEFAULT_ADDRESS, 0, type(uint256).max);
+        (uint256 actualAssetIn, uint256 actualCompensationOut, uint256 actualFee) = corkPool.unwindExercise(IPoolManager.UnwindExerciseParams({poolId: marketId, shares: shares, receiver: DEFAULT_ADDRESS, minCompensationOut: 0, maxAssetsIn: type(uint256).max}));
 
         assertEq(actualAssetIn, previewAssetIn, "Actual asset in should match preview");
         assertEq(actualCompensationOut, previewCompensationOut, "Actual compensation out should match preview");
@@ -291,7 +295,7 @@ contract UnwindExerciseTest is Helper {
         corkPool.deposit(_marketId, DEFAULT_DEPOSIT_AMOUNT, currentCaller());
 
         // Setup exercise scenario
-        corkPool.exercise(_marketId, DEFAULT_DEPOSIT_AMOUNT / 4, 0, DEFAULT_ADDRESS, 0, type(uint256).max);
+        corkPool.exercise(IPoolManager.ExerciseParams({poolId: _marketId, shares: DEFAULT_DEPOSIT_AMOUNT / 4, compensation: 0, receiver: DEFAULT_ADDRESS, minAssetsOut: 0, maxOtherAssetSpent: type(uint256).max}));
 
         // Test preview with different fee
         (uint256 assetIn, uint256 compensationOut) = corkPool.previewUnwindExercise(_marketId, shares);
@@ -331,7 +335,7 @@ contract UnwindExerciseTest is Helper {
         corkPool.deposit(_marketId, DEFAULT_DEPOSIT_AMOUNT, currentCaller());
 
         // Setup exercise scenario
-        corkPool.exercise(_marketId, DEFAULT_DEPOSIT_AMOUNT / 4, 0, DEFAULT_ADDRESS, 0, type(uint256).max);
+        corkPool.exercise(IPoolManager.ExerciseParams({poolId: _marketId, shares: DEFAULT_DEPOSIT_AMOUNT / 4, compensation: 0, receiver: DEFAULT_ADDRESS, minAssetsOut: 0, maxOtherAssetSpent: type(uint256).max}));
 
         // Test preview with different rate
         (uint256 assetIn, uint256 compensationOut) = corkPool.previewUnwindExercise(_marketId, shares);
@@ -359,22 +363,18 @@ contract UnwindExerciseTest is Helper {
         // Test minCompensationOut protection
         vm.expectRevert(abi.encodeWithSelector(IErrors.InsufficientOutputAmount.selector, previewCompensationOut + 1, previewCompensationOut));
         corkPool.unwindExercise(
-            defaultCurrencyId,
-            shares,
-            user3,
-            previewCompensationOut + 1, // Set minimum higher than preview
-            type(uint256).max
+            IPoolManager.UnwindExerciseParams({
+                poolId: defaultCurrencyId,
+                shares: shares,
+                receiver: user3,
+                minCompensationOut: previewCompensationOut + 1, // Set minimum higher than preview
+                maxAssetsIn: type(uint256).max
+            })
         );
 
         // Test maxAssetsIn protection
         vm.expectRevert(abi.encodeWithSelector(IErrors.ExceedInput.selector, previewAssetIn, previewAssetIn - 1));
-        corkPool.unwindExercise(
-            defaultCurrencyId,
-            shares,
-            user3,
-            0,
-            previewAssetIn - 1 // Set maximum lower than preview
-        );
+        corkPool.unwindExercise(IPoolManager.UnwindExerciseParams({poolId: defaultCurrencyId, shares: shares, receiver: user3, minCompensationOut: 0, maxAssetsIn: previewAssetIn - 1}));
 
         vm.stopPrank();
     }
@@ -384,12 +384,14 @@ contract UnwindExerciseTest is Helper {
 
         vm.startPrank(user3);
 
-        // Should revert with zero shares
-        vm.expectRevert(IErrors.InvalidAmount.selector);
-        corkPool.previewUnwindExercise(defaultCurrencyId, 0);
+        // Should not  revert with zero shares but return 0
+        (uint256 assetIn, uint256 compensationOut) = corkPool.previewUnwindExercise(defaultCurrencyId, 0);
+
+        assertEq(assetIn, 0);
+        assertEq(compensationOut, 0);
 
         vm.expectRevert(IErrors.InvalidAmount.selector);
-        corkPool.unwindExercise(defaultCurrencyId, 0, user3, 0, type(uint256).max);
+        corkPool.unwindExercise(IPoolManager.UnwindExerciseParams({poolId: defaultCurrencyId, shares: 0, receiver: user3, minCompensationOut: 0, maxAssetsIn: type(uint256).max}));
 
         vm.stopPrank();
     }
@@ -409,7 +411,7 @@ contract UnwindExerciseTest is Helper {
 
         // Actual execution should revert due to insufficient liquidity
         vm.expectRevert();
-        corkPool.unwindExercise(defaultCurrencyId, excessiveShares, user3, 0, type(uint256).max);
+        corkPool.unwindExercise(IPoolManager.UnwindExerciseParams({poolId: defaultCurrencyId, shares: excessiveShares, receiver: user3, minCompensationOut: 0, maxAssetsIn: type(uint256).max}));
 
         vm.stopPrank();
     }
@@ -424,12 +426,15 @@ contract UnwindExerciseTest is Helper {
 
         uint256 shares = 100 ether;
 
-        // Should revert when token is expired
-        vm.expectRevert();
-        corkPool.previewUnwindExercise(defaultCurrencyId, shares);
+        // Should not revert when token is expired
+        (uint256 assetIn, uint256 compensationOut) = corkPool.previewUnwindExercise(defaultCurrencyId, shares);
 
+        assertEq(assetIn, 0);
+        assertEq(compensationOut, 0);
+
+        // should revert
         vm.expectRevert();
-        corkPool.unwindExercise(defaultCurrencyId, shares, user3, 0, type(uint256).max);
+        corkPool.unwindExercise(IPoolManager.UnwindExerciseParams({poolId: defaultCurrencyId, shares: shares, receiver: user3, minCompensationOut: 0, maxAssetsIn: type(uint256).max}));
 
         vm.stopPrank();
     }
@@ -441,16 +446,14 @@ contract UnwindExerciseTest is Helper {
 
         // Take snapshots before and after preview
         BalanceSnapshot memory beforeSnapshot = takeBalanceSnapshot(address(corkPool));
-        uint256 poolPaBalanceBefore = corkPool.valueLocked(defaultCurrencyId, false);
-        uint256 poolRaBalanceBefore = corkPool.valueLocked(defaultCurrencyId, true);
+        (uint256 poolRaBalanceBefore, uint256 poolPaBalanceBefore) = corkPool.valueLocked(defaultCurrencyId);
 
         // Call preview
         (uint256 assetIn, uint256 compensationOut) = corkPool.previewUnwindExercise(defaultCurrencyId, shares);
 
         // Take snapshots after preview
         BalanceSnapshot memory afterSnapshot = takeBalanceSnapshot(address(corkPool));
-        uint256 poolPaBalanceAfter = corkPool.valueLocked(defaultCurrencyId, false);
-        uint256 poolRaBalanceAfter = corkPool.valueLocked(defaultCurrencyId, true);
+        (uint256 poolRaBalanceAfter, uint256 poolPaBalanceAfter) = corkPool.valueLocked(defaultCurrencyId);
 
         // Verify no state changes occurred
         assertEq(beforeSnapshot.collateralAsset, afterSnapshot.collateralAsset, "Pool collateral balance should not change");
@@ -496,7 +499,7 @@ contract UnwindExerciseTest is Helper {
 
             // Exercise to provide reference asset liquidity
             uint256 exerciseAmount = TransferHelper.tokenNativeDecimalsToFixed(depositAmount / 4, _collateralAsset.decimals());
-            if (exerciseAmount > 0) corkPool.exercise(_marketId, exerciseAmount, 0, DEFAULT_ADDRESS, 0, type(uint256).max);
+            if (exerciseAmount > 0) corkPool.exercise(IPoolManager.ExerciseParams({poolId: _marketId, shares: exerciseAmount, compensation: 0, receiver: DEFAULT_ADDRESS, minAssetsOut: 0, maxOtherAssetSpent: type(uint256).max}));
         }
         // Test preview
         try corkPool.previewUnwindExercise(_marketId, shares) returns (uint256 assetIn, uint256 compensationOut) {
@@ -525,7 +528,7 @@ contract UnwindExerciseTest is Helper {
         // Should be able to unwind exercise up to the max amount
         vm.startPrank(user3);
         if (maxShares > 0) {
-            (uint256 assetIn, uint256 compensationOut) = corkPool.unwindExercise(defaultCurrencyId, maxShares, user3, 0, type(uint256).max);
+            (uint256 assetIn, uint256 compensationOut, uint256 fee) = corkPool.unwindExercise(IPoolManager.UnwindExerciseParams({poolId: defaultCurrencyId, shares: maxShares, receiver: user3, minCompensationOut: 0, maxAssetsIn: type(uint256).max}));
             assertGt(assetIn, 0, "Asset in should be positive");
             assertGt(compensationOut, 0, "Compensation out should be positive");
         }
@@ -588,7 +591,7 @@ contract UnwindExerciseTest is Helper {
 
         // Perform a large unwind exercise to drain reference asset
         vm.startPrank(user3);
-        if (initialMaxShares > 0) corkPool.unwindExercise(defaultCurrencyId, initialMaxShares, user3, 0, type(uint256).max);
+        if (initialMaxShares > 0) corkPool.unwindExercise(IPoolManager.UnwindExerciseParams({poolId: defaultCurrencyId, shares: initialMaxShares, receiver: user3, minCompensationOut: 0, maxAssetsIn: type(uint256).max}));
         vm.stopPrank();
 
         // Check max shares after draining
@@ -611,7 +614,7 @@ contract UnwindExerciseTest is Helper {
 
             // Actual execution should also work
             vm.startPrank(user3);
-            (uint256 actualAssetIn, uint256 actualCompensationOut) = corkPool.unwindExercise(defaultCurrencyId, maxShares, user3, 0, type(uint256).max);
+            (uint256 actualAssetIn, uint256 actualCompensationOut, uint256 actualFee) = corkPool.unwindExercise(IPoolManager.UnwindExerciseParams({poolId: defaultCurrencyId, shares: maxShares, receiver: user3, minCompensationOut: 0, maxAssetsIn: type(uint256).max}));
 
             assertEq(actualAssetIn, previewAssetIn, "Actual should match preview");
             assertEq(actualCompensationOut, previewCompensationOut, "Actual should match preview");
@@ -650,7 +653,7 @@ contract UnwindExerciseTest is Helper {
         corkPool.deposit(_marketId, DEFAULT_DEPOSIT_AMOUNT, currentCaller());
 
         // Setup exercise scenario to provide reference asset liquidity
-        corkPool.exercise(_marketId, DEFAULT_DEPOSIT_AMOUNT / 4, 0, DEFAULT_ADDRESS, 0, type(uint256).max);
+        corkPool.exercise(IPoolManager.ExerciseParams({poolId: _marketId, shares: DEFAULT_DEPOSIT_AMOUNT / 4, compensation: 0, receiver: DEFAULT_ADDRESS, minAssetsOut: 0, maxOtherAssetSpent: type(uint256).max}));
 
         // Test maxUnwindExercise with different rate
         uint256 maxShares = corkPool.maxUnwindExercise(_marketId, DEFAULT_ADDRESS);
@@ -668,7 +671,7 @@ contract UnwindExerciseTest is Helper {
         vm.startPrank(DEFAULT_ADDRESS);
 
         swapToken.approve(address(corkPool), type(uint256).max);
-        corkPool.exercise(defaultCurrencyId, 10 ether, 0, DEFAULT_ADDRESS, 0, 1000 ether);
+        corkPool.exercise(IPoolManager.ExerciseParams({poolId: defaultCurrencyId, shares: 10 ether, compensation: 0, receiver: DEFAULT_ADDRESS, minAssetsOut: 0, maxOtherAssetSpent: 1000 ether}));
 
         uint256 shares = 1 ether;
         uint256 fee = 5 ether;
@@ -678,16 +681,16 @@ contract UnwindExerciseTest is Helper {
         (uint256 assetIn,) = corkPool.previewUnwindExercise(defaultCurrencyId, shares);
 
         assertApproxEqAbs(assetIn, 1.052631579 ether, 0.0001 ether, "asset in must match");
-        (,,, fee,) = corkPool.previewUnwindSwap(defaultCurrencyId, assetIn);
+        IUnwindSwap.UnwindSwapReturnParams memory previewReturnParams = corkPool.previewUnwindSwap(defaultCurrencyId, assetIn);
 
-        assertApproxEqAbs(fee, 0.052631579 ether, 0.0001 ether, "fee  must match");
+        assertApproxEqAbs(previewReturnParams.fee, 0.052631579 ether, 0.0001 ether, "fee  must match");
 
-        (assetIn,) = corkPool.unwindExercise(defaultCurrencyId, shares, currentCaller(), 0, 10_000 ether);
+        (assetIn,,) = corkPool.unwindExercise(IPoolManager.UnwindExerciseParams({poolId: defaultCurrencyId, shares: shares, receiver: currentCaller(), minCompensationOut: 0, maxAssetsIn: 10_000 ether}));
 
         assertApproxEqAbs(assetIn, 1.052631579 ether, 0.0001 ether, "asset in must match");
 
-        (,,, fee,) = corkPool.unwindSwap(defaultCurrencyId, assetIn, DEFAULT_ADDRESS);
+        IUnwindSwap.UnwindSwapReturnParams memory unwindReturnParams = corkPool.unwindSwap(defaultCurrencyId, assetIn, DEFAULT_ADDRESS);
 
-        assertApproxEqAbs(fee, 0.052631579 ether, 0.0001 ether, "fee  must match");
+        assertApproxEqAbs(unwindReturnParams.fee, 0.052631579 ether, 0.0001 ether, "fee  must match");
     }
 }

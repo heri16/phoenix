@@ -9,7 +9,7 @@ import {Helper} from "test/forge/Helper.sol";
 contract RateUpdateTest is Helper {
     function setUp() external {
         vm.startPrank(DEFAULT_ADDRESS);
-        deployContracts(DEFAULT_ADDRESS, DEFAULT_ADDRESS);
+        deployContracts(DEFAULT_ADDRESS, DEFAULT_ADDRESS, DEFAULT_ADDRESS);
         createMarket(10 days);
         vm.startPrank(address(corkPool));
     }

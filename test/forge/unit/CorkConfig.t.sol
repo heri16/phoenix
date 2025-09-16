@@ -4,6 +4,7 @@ pragma solidity ^0.8.30;
 import {CorkConfig} from "contracts/core/CorkConfig.sol";
 import {IConfig} from "contracts/interfaces/IConfig.sol";
 import {IErrors} from "contracts/interfaces/IErrors.sol";
+import {IPoolManager} from "contracts/interfaces/IPoolManager.sol";
 import {Market, MarketId} from "contracts/libraries/Market.sol";
 import {IAccessControl} from "openzeppelin-contracts/contracts/access/IAccessControl.sol";
 import {Pausable} from "openzeppelin-contracts/contracts/utils/Pausable.sol";
@@ -13,8 +14,8 @@ import {ERC20Mock} from "test/mocks/ERC20Mock.sol";
 contract CorkConfigTest is Helper {
     CorkConfig private config;
     address private admin;
-    address private manager;
-    address private rateUpdater;
+    address private pauser;
+    address private poolCreator;
     address private user;
 
     ERC20Mock collateralAsset;
@@ -42,51 +43,51 @@ contract CorkConfigTest is Helper {
 
     function setUp() public {
         admin = address(1);
-        manager = address(2);
-        rateUpdater = address(3);
+        pauser = address(2);
+        poolCreator = address(3);
         user = address(5);
 
         vm.startPrank(admin);
-        config = new CorkConfig(admin, manager);
+        config = new CorkConfig(admin, pauser, poolCreator);
         vm.stopPrank();
 
         vm.startPrank(DEFAULT_ADDRESS);
-        deployContracts(DEFAULT_ADDRESS, DEFAULT_ADDRESS);
+        deployContracts(DEFAULT_ADDRESS, DEFAULT_ADDRESS, DEFAULT_ADDRESS);
         (collateralAsset, referenceAsset, id) = createMarket(block.timestamp + 1 days);
         vm.stopPrank();
     }
 
     // ----------------------- Tests for constant variables of CorkConfig contract -----------------------//
     function test_CorkConfigRolesVariables() public {
-        assertEq(config.MANAGER_ROLE(), keccak256("MANAGER_ROLE"));
-        assertEq(config.RATE_UPDATERS_ROLE(), keccak256("RATE_UPDATERS_ROLE"));
-        assertEq(config.MARKET_ADMIN_ROLE(), keccak256("MARKET_ADMIN"));
+        assertEq(config.PAUSER_ROLE(), keccak256("PAUSER_ROLE"));
+        assertEq(config.POOL_CREATOR_ROLE(), keccak256("POOL_CREATOR_ROLE"));
     }
     //-----------------------------------------------------------------------------------------------------//
 
     //---------------------------------- Tests for CorkConfig constructor ---------------------------------//
     function test_CorkConfigConstructorRevertWhenPassedZeroAddress() public {
         vm.expectRevert(IConfig.InvalidAddress.selector);
-        new CorkConfig(address(0), address(0));
+        new CorkConfig(address(0), address(0), address(0));
 
         vm.expectRevert(IConfig.InvalidAddress.selector);
-        new CorkConfig(address(0), manager);
+        new CorkConfig(address(0), address(0), pauser);
 
         vm.expectRevert(IConfig.InvalidAddress.selector);
-        new CorkConfig(manager, address(0));
+        new CorkConfig(address(0), pauser, address(0));
+
+        vm.expectRevert(IConfig.InvalidAddress.selector);
+        new CorkConfig(pauser, address(0), address(0));
     }
 
     function test_CorkConfigConstructorShouldWorkCorrectly() public {
         // Assign roles correctly
         assertEq(config.hasRole(config.DEFAULT_ADMIN_ROLE(), admin), true);
-        assertEq(config.hasRole(config.MANAGER_ROLE(), manager), true);
-        assertEq(config.hasRole(config.MARKET_ADMIN_ROLE(), manager), true);
-        assertEq(config.hasRole(config.RATE_UPDATERS_ROLE(), manager), false);
+        assertEq(config.hasRole(config.PAUSER_ROLE(), pauser), true);
+        assertEq(config.hasRole(config.POOL_CREATOR_ROLE(), poolCreator), true);
 
         // Assign Role Hierarchy correctly
-        assertEq(config.getRoleAdmin(config.MANAGER_ROLE()), config.DEFAULT_ADMIN_ROLE());
-        assertEq(config.getRoleAdmin(config.RATE_UPDATERS_ROLE()), config.MANAGER_ROLE());
-        assertEq(config.getRoleAdmin(config.MARKET_ADMIN_ROLE()), config.MANAGER_ROLE());
+        assertEq(config.getRoleAdmin(config.PAUSER_ROLE()), config.DEFAULT_ADMIN_ROLE());
+        assertEq(config.getRoleAdmin(config.POOL_CREATOR_ROLE()), config.DEFAULT_ADMIN_ROLE());
 
         // Assign variables correctly
         assertEq(address(config.corkPool()), address(0));
@@ -94,147 +95,151 @@ contract CorkConfigTest is Helper {
     }
     //-----------------------------------------------------------------------------------------------------//
 
-    //------------------------------------- Tests for setRoleAdmin ----------------------------------------//
-    function test_SetRoleAdminRevertWhenCalledByNonManagerRole() public {
-        bytes32 updaterRole = config.RATE_UPDATERS_ROLE();
-        bytes32 marketAdminRole = config.MARKET_ADMIN_ROLE();
-
-        assertEq(config.getRoleAdmin(updaterRole), config.MANAGER_ROLE());
-
-        vm.startPrank(user);
-        vm.expectRevert(abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, user, config.MANAGER_ROLE()));
-        config.setRoleAdmin(updaterRole, marketAdminRole);
-
-        assertEq(config.getRoleAdmin(updaterRole), config.MANAGER_ROLE());
-    }
-
-    function test_SetRoleAdminRevertWhenPassedSameRole() public {
-        bytes32 updaterRole = config.RATE_UPDATERS_ROLE();
-        bytes32 managerRole = config.MANAGER_ROLE();
-        assertEq(config.getRoleAdmin(updaterRole), config.MANAGER_ROLE());
-
-        vm.startPrank(manager);
-        vm.expectRevert(IConfig.InvalidAdminRole.selector);
-        config.setRoleAdmin(updaterRole, managerRole);
-
-        assertEq(config.getRoleAdmin(updaterRole), config.MANAGER_ROLE());
-    }
-
-    function test_SetRoleAdminShouldWorkCorrectly() public {
-        bytes32 updaterRole = config.RATE_UPDATERS_ROLE();
-        bytes32 marketAdminRole = config.MARKET_ADMIN_ROLE();
-        assertEq(config.getRoleAdmin(updaterRole), config.MANAGER_ROLE());
-
-        vm.startPrank(manager);
-        vm.expectEmit(false, false, false, true);
-        emit RoleAdminChanged(updaterRole, config.MANAGER_ROLE(), marketAdminRole);
-        config.setRoleAdmin(updaterRole, marketAdminRole);
-
-        assertEq(config.getRoleAdmin(updaterRole), marketAdminRole);
-    }
-    //-----------------------------------------------------------------------------------------------------//
-
     //------------------------------------- Tests for grantRole ------------------------------------------//
     function test_GrantRoleRevertWhenCalledByNonManager() public {
-        bytes32 role = config.RATE_UPDATERS_ROLE();
+        bytes32 role = config.POOL_CREATOR_ROLE();
         vm.startPrank(user);
-        assertFalse(config.hasRole(role, rateUpdater));
+        assertFalse(config.hasRole(role, pauser));
 
-        vm.expectRevert(IConfig.CallerNotManager.selector);
-        config.grantRole(role, rateUpdater);
-        assertFalse(config.hasRole(role, rateUpdater));
+        vm.expectPartialRevert(IAccessControl.AccessControlUnauthorizedAccount.selector);
+        config.grantRole(role, pauser);
+
+        assertFalse(config.hasRole(role, pauser));
     }
 
     function test_GrantRoleRevertWhenAccountAlreadyHasThatRole() public {
-        bytes32 marketAdminRole = config.MARKET_ADMIN_ROLE();
-        bytes32 managerRole = config.MANAGER_ROLE();
-        assertEq(config.hasRole(marketAdminRole, manager), true);
+        bytes32 poolDeployerRole = config.POOL_CREATOR_ROLE();
+        bytes32 managerRole = config.PAUSER_ROLE();
+        assertEq(config.hasRole(poolDeployerRole, poolCreator), true);
 
-        vm.startPrank(manager);
-        vm.expectRevert(IConfig.InvalidRole.selector);
-        config.grantRole(marketAdminRole, manager);
+        vm.startPrank(admin);
+        vm.expectRevert(IConfig.InvalidAddress.selector);
+        config.grantRole(poolDeployerRole, poolCreator);
 
-        assertEq(config.hasRole(marketAdminRole, manager), true);
-        assertEq(config.hasRole(managerRole, manager), true);
+        assertEq(config.hasRole(poolDeployerRole, poolCreator), true);
+        assertEq(config.hasRole(managerRole, pauser), true);
 
-        vm.startPrank(manager);
-        vm.expectRevert(IConfig.InvalidRole.selector);
-        config.grantRole(managerRole, manager);
+        vm.expectRevert(IConfig.InvalidAddress.selector);
+        config.grantRole(managerRole, pauser);
 
-        assertEq(config.hasRole(managerRole, manager), true);
+        assertEq(config.hasRole(managerRole, pauser), true);
     }
 
     function test_GrantRoleShouldWorkCorrectly() public {
-        bytes32 role = config.RATE_UPDATERS_ROLE();
-        vm.startPrank(manager);
-        assertFalse(config.hasRole(role, rateUpdater));
+        bytes32 role = config.POOL_CREATOR_ROLE();
+        vm.startPrank(admin);
+        assertFalse(config.hasRole(role, address(9)));
 
         vm.expectEmit(false, false, false, true);
-        emit RoleGranted(role, rateUpdater, manager);
-        config.grantRole(role, rateUpdater);
-        assertTrue(config.hasRole(role, rateUpdater));
+        emit RoleGranted(role, address(9), pauser);
+
+        config.grantRole(role, address(9));
+
+        assertTrue(config.hasRole(role, address(9)));
+        assertTrue(config.hasRole(role, poolCreator));
     }
 
     function test_GrantRoleShouldWorkCorrectlyWhenNoManagerRole() public {
-        bytes32 role = config.RATE_UPDATERS_ROLE();
+        bytes32 role = config.POOL_CREATOR_ROLE();
         vm.startPrank(admin);
-        config.revokeRole(config.MANAGER_ROLE(), manager);
-        assertFalse(config.hasRole(role, rateUpdater));
+        config.revokeRole(config.PAUSER_ROLE(), pauser);
+        assertFalse(config.hasRole(role, address(9)));
 
         vm.expectEmit(false, false, false, true);
-        emit RoleGranted(role, rateUpdater, manager);
-        config.grantRole(role, rateUpdater);
-        assertTrue(config.hasRole(role, rateUpdater));
+        emit RoleGranted(role, address(9), pauser);
+        config.grantRole(role, address(9));
+        assertTrue(config.hasRole(role, address(9)));
+        assertTrue(config.hasRole(role, poolCreator));
     }
+    //-----------------------------------------------------------------------------------------------------//
+
+    //------------------------------------- Tests for revokeRole ------------------------------------------//
+    function test_RevokeRoleRevertWhenCalledByNonManager() public {
+        bytes32 role = config.POOL_CREATOR_ROLE();
+        vm.startPrank(user);
+        assertFalse(config.hasRole(role, pauser));
+
+        vm.expectPartialRevert(IAccessControl.AccessControlUnauthorizedAccount.selector);
+        config.revokeRole(role, pauser);
+        assertFalse(config.hasRole(role, pauser));
+    }
+
+    function test_RevokeRoleRevertWhenAccountDoesNotHasThatRole() public {
+        bytes32 poolDeployerRole = config.POOL_CREATOR_ROLE();
+        bytes32 managerRole = config.PAUSER_ROLE();
+
+        vm.startPrank(admin);
+        config.revokeRole(poolDeployerRole, poolCreator);
+
+        assertEq(config.hasRole(poolDeployerRole, poolCreator), false);
+
+        vm.expectRevert(IConfig.InvalidAddress.selector);
+        config.revokeRole(poolDeployerRole, poolCreator);
+    }
+
+    function test_RevokeRoleShouldWorkCorrectly() public {
+        bytes32 role = config.POOL_CREATOR_ROLE();
+        vm.startPrank(admin);
+
+        config.grantRole(role, address(9));
+        assertTrue(config.hasRole(role, address(9)));
+
+        vm.expectEmit(false, false, false, true);
+        emit RoleRevoked(role, address(9), admin);
+        config.revokeRole(role, address(9));
+
+        assertFalse(config.hasRole(role, address(9)));
+    }
+
     //-----------------------------------------------------------------------------------------------------//
 
     //------------------------------------- Tests for transferAdmin ----------------------------------------//
     function test_TransferAdminRevertWhenCalledByNonAdmin() public {
         assertEq(config.hasRole(config.DEFAULT_ADMIN_ROLE(), admin), true);
-        assertEq(config.hasRole(config.DEFAULT_ADMIN_ROLE(), rateUpdater), false);
+        assertEq(config.hasRole(config.DEFAULT_ADMIN_ROLE(), poolCreator), false);
 
         vm.startPrank(user);
         vm.expectRevert(abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, user, config.DEFAULT_ADMIN_ROLE()));
-        config.transferAdmin(rateUpdater);
+        config.transferAdmin(poolCreator);
 
         assertEq(config.hasRole(config.DEFAULT_ADMIN_ROLE(), admin), true);
-        assertEq(config.hasRole(config.DEFAULT_ADMIN_ROLE(), rateUpdater), false);
+        assertEq(config.hasRole(config.DEFAULT_ADMIN_ROLE(), poolCreator), false);
     }
 
     function test_TransferAdminRevertWhenPassedZeroAddress() public {
         assertEq(config.hasRole(config.DEFAULT_ADMIN_ROLE(), admin), true);
-        assertEq(config.hasRole(config.DEFAULT_ADMIN_ROLE(), rateUpdater), false);
+        assertEq(config.hasRole(config.DEFAULT_ADMIN_ROLE(), poolCreator), false);
 
         vm.startPrank(admin);
         vm.expectRevert(IConfig.InvalidAddress.selector);
         config.transferAdmin(address(0));
 
         assertEq(config.hasRole(config.DEFAULT_ADMIN_ROLE(), admin), true);
-        assertEq(config.hasRole(config.DEFAULT_ADMIN_ROLE(), rateUpdater), false);
+        assertEq(config.hasRole(config.DEFAULT_ADMIN_ROLE(), poolCreator), false);
     }
 
     function test_TransferAdminRevertWhenPassedCurrentAdminAddress() public {
         assertEq(config.hasRole(config.DEFAULT_ADMIN_ROLE(), admin), true);
-        assertEq(config.hasRole(config.DEFAULT_ADMIN_ROLE(), rateUpdater), false);
+        assertEq(config.hasRole(config.DEFAULT_ADMIN_ROLE(), poolCreator), false);
 
         vm.startPrank(admin);
         vm.expectRevert(IConfig.InvalidAddress.selector);
         config.transferAdmin(admin);
 
         assertEq(config.hasRole(config.DEFAULT_ADMIN_ROLE(), admin), true);
-        assertEq(config.hasRole(config.DEFAULT_ADMIN_ROLE(), rateUpdater), false);
+        assertEq(config.hasRole(config.DEFAULT_ADMIN_ROLE(), poolCreator), false);
     }
 
     function test_TransferAdminShouldWorkCorrectly() public {
         assertEq(config.hasRole(config.DEFAULT_ADMIN_ROLE(), admin), true);
-        assertEq(config.hasRole(config.DEFAULT_ADMIN_ROLE(), rateUpdater), false);
+        assertEq(config.hasRole(config.DEFAULT_ADMIN_ROLE(), poolCreator), false);
 
         vm.startPrank(admin);
         vm.expectEmit(false, false, false, true);
-        emit RoleGranted(config.DEFAULT_ADMIN_ROLE(), rateUpdater, admin);
-        config.transferAdmin(rateUpdater);
+        emit RoleGranted(config.DEFAULT_ADMIN_ROLE(), poolCreator, admin);
+        config.transferAdmin(poolCreator);
 
-        assertEq(config.hasRole(config.DEFAULT_ADMIN_ROLE(), rateUpdater), true);
+        assertEq(config.hasRole(config.DEFAULT_ADMIN_ROLE(), poolCreator), true);
         assertEq(config.hasRole(config.DEFAULT_ADMIN_ROLE(), admin), false);
     }
     //-----------------------------------------------------------------------------------------------------//
@@ -245,7 +250,7 @@ contract CorkConfigTest is Helper {
         assertEq(address(config.corkPool()), address(0));
 
         vm.startPrank(user);
-        vm.expectRevert(IConfig.CallerNotManager.selector);
+        vm.expectPartialRevert(IAccessControl.AccessControlUnauthorizedAccount.selector);
         config.setCorkPool(mockCorkPool);
 
         assertEq(address(config.corkPool()), address(0));
@@ -254,8 +259,8 @@ contract CorkConfigTest is Helper {
     function test_SetCorkPoolRevertWhenPassedZeroAddress() public {
         assertEq(address(config.corkPool()), address(0));
 
-        vm.startPrank(manager);
-        vm.expectRevert(IConfig.InvalidAddress.selector);
+        vm.startPrank(admin);
+        vm.expectPartialRevert(IConfig.InvalidAddress.selector);
         config.setCorkPool(address(0));
 
         assertEq(address(config.corkPool()), address(0));
@@ -265,7 +270,7 @@ contract CorkConfigTest is Helper {
         assertEq(address(config.corkPool()), address(0));
         address mockCorkPool = address(5);
 
-        vm.startPrank(manager);
+        vm.startPrank(admin);
         vm.expectEmit(false, false, false, true);
         emit CorkPoolSet(mockCorkPool);
         config.setCorkPool(mockCorkPool);
@@ -280,7 +285,7 @@ contract CorkConfigTest is Helper {
         address mockTreasury = address(5);
 
         vm.startPrank(user);
-        vm.expectRevert(IConfig.CallerNotManager.selector);
+        vm.expectPartialRevert(IAccessControl.AccessControlUnauthorizedAccount.selector);
         config.setTreasury(mockTreasury);
 
         assertEq(address(config.treasury()), address(0));
@@ -289,7 +294,7 @@ contract CorkConfigTest is Helper {
     function test_SetTreasuryRevertWhenPassedZeroAddress() public {
         assertEq(address(config.treasury()), address(0));
 
-        vm.startPrank(manager);
+        vm.startPrank(admin);
         vm.expectRevert(IConfig.InvalidAddress.selector);
         config.setTreasury(address(0));
 
@@ -300,7 +305,7 @@ contract CorkConfigTest is Helper {
         assertEq(address(config.treasury()), address(0));
         address mockTreasury = address(5);
 
-        vm.startPrank(manager);
+        vm.startPrank(admin);
         vm.expectEmit(false, false, false, true);
         emit TreasurySet(mockTreasury);
         config.setTreasury(mockTreasury);
@@ -309,11 +314,11 @@ contract CorkConfigTest is Helper {
     }
     //-----------------------------------------------------------------------------------------------------//
 
-    //------------------------------------- Tests for createNewMarket ----------------------------------------//
-    function test_InitializeCorkPoolRevertWhenCalledByNonMarketAdmin() public {
+    //------------------------------------- Tests for createNewPool ----------------------------------------//
+    function test_InitializeCorkPoolRevertWhenCalledByNonPoolDeployer() public {
         vm.startPrank(user);
-        vm.expectRevert(IConfig.CallerNotMarketAdmin.selector);
-        corkConfig.createNewMarket(address(collateralAsset), address(referenceAsset), 0, address(0), 0, 0, 0, 0);
+        vm.expectPartialRevert(IAccessControl.AccessControlUnauthorizedAccount.selector);
+        corkConfig.createNewPool(Market({collateralAsset: address(collateralAsset), referenceAsset: address(referenceAsset), expiryTimestamp: 0, rateOracle: address(0), rateMin: 0, rateMax: 0, rateChangePerDayMax: 0, rateChangeCapacityMax: 0}));
     }
 
     function test_initializeCorkPoolRevertWhenConfigIsPaused() external {
@@ -322,13 +327,13 @@ contract CorkConfigTest is Helper {
         assertTrue(corkConfig.paused());
 
         vm.expectRevert(Pausable.EnforcedPause.selector);
-        corkConfig.createNewMarket(address(collateralAsset), address(referenceAsset), 0, address(0), 0, 0, 0, 0);
+        corkConfig.createNewPool(Market({collateralAsset: address(collateralAsset), referenceAsset: address(referenceAsset), expiryTimestamp: 0, rateOracle: address(0), rateMin: 0, rateMax: 0, rateChangePerDayMax: 0, rateChangeCapacityMax: 0}));
     }
 
     function test_initializeCorkPoolShouldWorkCorrectly() public {
         vm.startPrank(DEFAULT_ADDRESS);
 
-        (collateralAsset, referenceAsset, id) = createNewMarketPair(block.timestamp + 1 days);
+        (collateralAsset, referenceAsset, id) = createNewPoolPair(block.timestamp + 1 days);
 
         address paAddress;
         address raAddress;
@@ -349,9 +354,19 @@ contract CorkConfigTest is Helper {
         assertEq(rateChangePerDayMax, 0);
         assertEq(rateChangeCapacityMax, 0);
 
-        MarketId id = corkPool.getId(address(referenceAsset), address(collateralAsset), 1 days, address(testOracle), DEFAULT_RATE_MIN, DEFAULT_RATE_MAX, DEFAULT_RATE_CHANGE_PER_DAY_MAX, DEFAULT_RATE_CHANGE_CAPACITY_MAX);
+        Market memory market = Market({
+            collateralAsset: address(collateralAsset),
+            referenceAsset: address(referenceAsset),
+            expiryTimestamp: 1 days,
+            rateOracle: address(testOracle),
+            rateMin: DEFAULT_RATE_MIN,
+            rateMax: DEFAULT_RATE_MAX,
+            rateChangePerDayMax: DEFAULT_RATE_CHANGE_PER_DAY_MAX,
+            rateChangeCapacityMax: DEFAULT_RATE_CHANGE_CAPACITY_MAX
+        });
+        MarketId id = corkPool.getId(market);
         testOracle.setRate(id, defaultOracleRate());
-        corkConfig.createNewMarket(address(referenceAsset), address(collateralAsset), 1 days, address(testOracle), DEFAULT_RATE_MIN, DEFAULT_RATE_MAX, DEFAULT_RATE_CHANGE_PER_DAY_MAX, DEFAULT_RATE_CHANGE_CAPACITY_MAX);
+        corkConfig.createNewPool(market);
 
         Market memory marketParams = corkPool.market(id);
         assertEq(marketParams.referenceAsset, address(referenceAsset));
@@ -370,7 +385,7 @@ contract CorkConfigTest is Helper {
         assertEq(corkPool.unwindSwapFee(id), DEFAULT_REVERSE_SWAP_FEE);
 
         vm.startPrank(user);
-        vm.expectRevert(IConfig.CallerNotManager.selector);
+        vm.expectPartialRevert(IAccessControl.AccessControlUnauthorizedAccount.selector);
         corkConfig.updateUnwindSwapFeeRate(id, 1.23456789 ether);
 
         assertEq(corkPool.unwindSwapFee(id), DEFAULT_REVERSE_SWAP_FEE);
@@ -391,7 +406,7 @@ contract CorkConfigTest is Helper {
         assertEq(corkPool.baseRedemptionFee(id), DEFAULT_BASE_REDEMPTION_FEE);
 
         vm.startPrank(user);
-        vm.expectRevert(IConfig.CallerNotManager.selector);
+        vm.expectPartialRevert(IAccessControl.AccessControlUnauthorizedAccount.selector);
         corkConfig.updateBaseRedemptionFeePercentage(id, 1.23456789 ether);
 
         assertEq(corkPool.baseRedemptionFee(id), DEFAULT_BASE_REDEMPTION_FEE);
@@ -412,14 +427,14 @@ contract CorkConfigTest is Helper {
         assertFalse(config.paused());
 
         vm.startPrank(user);
-        vm.expectRevert(IConfig.CallerNotManager.selector);
+        vm.expectPartialRevert(IAccessControl.AccessControlUnauthorizedAccount.selector);
         config.pause();
 
         assertFalse(config.paused());
     }
 
     function test_PauseShouldRevertWhenAlreadyPaused() public {
-        vm.startPrank(manager);
+        vm.startPrank(pauser);
         config.pause();
         assertTrue(config.paused());
 
@@ -432,9 +447,10 @@ contract CorkConfigTest is Helper {
     function test_PauseShouldWorkCorrectly() public {
         assertFalse(config.paused());
 
-        vm.startPrank(manager);
+        vm.startPrank(pauser);
         vm.expectEmit(false, false, false, true);
-        emit Paused(manager);
+
+        emit Paused(pauser);
         config.pause();
 
         assertTrue(config.paused());
@@ -443,12 +459,12 @@ contract CorkConfigTest is Helper {
 
     //------------------------------------- Tests for unpause ----------------------------------------//
     function test_UnpauseShouldRevertWhenCalledByNonManager() public {
-        vm.startPrank(manager);
+        vm.startPrank(pauser);
         config.pause();
         assertTrue(config.paused());
 
         vm.startPrank(address(8));
-        vm.expectRevert(IConfig.CallerNotManager.selector);
+        vm.expectPartialRevert(IAccessControl.AccessControlUnauthorizedAccount.selector);
         config.unpause();
         assertTrue(config.paused());
     }
@@ -456,7 +472,7 @@ contract CorkConfigTest is Helper {
     function test_UnpauseShouldRevertWhenNotPaused() public {
         assertFalse(config.paused());
 
-        vm.startPrank(manager);
+        vm.startPrank(admin);
         vm.expectRevert(Pausable.ExpectedPause.selector);
         config.unpause();
 
@@ -464,12 +480,13 @@ contract CorkConfigTest is Helper {
     }
 
     function test_UnpauseShouldWorkCorrectly() public {
-        vm.startPrank(manager);
+        vm.startPrank(pauser);
         config.pause();
         assertTrue(config.paused());
 
         vm.expectEmit(false, false, false, true);
-        emit Unpaused(manager);
+        vm.startPrank(admin);
+        emit Unpaused(admin);
         config.unpause();
         assertFalse(config.paused());
     }
@@ -477,38 +494,38 @@ contract CorkConfigTest is Helper {
 
     //------------------------------------- Tests for pauseDeposits ----------------------------------------//
     function test_PauseDepositsRevertWhenCalledByNonManager() public {
-        (bool depositPaused,,,,) = corkPool.pausedStates(id);
-        assertFalse(depositPaused);
+        IPoolManager.PausedStates memory pausedStates = corkPool.pausedStates(id);
+        assertFalse(pausedStates.depositPaused);
 
         vm.startPrank(user);
-        vm.expectRevert(IConfig.CallerNotManager.selector);
+        vm.expectPartialRevert(IAccessControl.AccessControlUnauthorizedAccount.selector);
         corkConfig.pauseDeposits(id);
 
-        (depositPaused,,,,) = corkPool.pausedStates(id);
-        assertFalse(depositPaused);
+        pausedStates = corkPool.pausedStates(id);
+        assertFalse(pausedStates.depositPaused);
     }
 
     function test_PauseDepositsShouldWorkCorrectly() public {
-        (bool depositPaused,,,,) = corkPool.pausedStates(id);
-        assertFalse(depositPaused);
+        IPoolManager.PausedStates memory pausedStates = corkPool.pausedStates(id);
+        assertFalse(pausedStates.depositPaused);
 
         vm.startPrank(DEFAULT_ADDRESS);
         vm.expectEmit(true, true, true, true);
         emit DepositPaused(id);
         corkConfig.pauseDeposits(id);
 
-        (depositPaused,,,,) = corkPool.pausedStates(id);
-        assertTrue(depositPaused);
+        pausedStates = corkPool.pausedStates(id);
+        assertTrue(pausedStates.depositPaused);
     }
     //-----------------------------------------------------------------------------------------------------//
 
     //------------------------------------- Tests for unpauseDeposits ----------------------------------------//
     function test_UnpauseDepositsShouldRevertWhenCalledByNonManager() public {
-        (bool depositPaused,,,,) = corkPool.pausedStates(id);
-        assertFalse(depositPaused);
+        IPoolManager.PausedStates memory pausedStates = corkPool.pausedStates(id);
+        assertFalse(pausedStates.depositPaused);
 
         vm.startPrank(user);
-        vm.expectRevert(IConfig.CallerNotManager.selector);
+        vm.expectPartialRevert(IAccessControl.AccessControlUnauthorizedAccount.selector);
         corkConfig.unpauseDeposits(id);
     }
 
@@ -516,42 +533,42 @@ contract CorkConfigTest is Helper {
         vm.startPrank(DEFAULT_ADDRESS);
         corkConfig.pauseDeposits(id);
 
-        (bool depositPaused,,,,) = corkPool.pausedStates(id);
-        assertTrue(depositPaused);
+        IPoolManager.PausedStates memory pausedStates = corkPool.pausedStates(id);
+        assertTrue(pausedStates.depositPaused);
 
         vm.expectEmit(false, false, false, true);
         emit DepositUnpaused(id);
         corkConfig.unpauseDeposits(id);
 
-        (depositPaused,,,,) = corkPool.pausedStates(id);
-        assertFalse(depositPaused);
+        pausedStates = corkPool.pausedStates(id);
+        assertFalse(pausedStates.depositPaused);
     }
     //-----------------------------------------------------------------------------------------------------//
 
     //------------------------------------- Tests for pauseunwindSwap ----------------------------------------//
     function test_PauseUnwindSwapsRevertWhenCalledByNonManager() public {
-        (, bool UnwindSwapPaused,,,) = corkPool.pausedStates(id);
-        assertFalse(UnwindSwapPaused);
+        IPoolManager.PausedStates memory pausedStates = corkPool.pausedStates(id);
+        assertFalse(pausedStates.unwindSwapPaused);
 
         vm.startPrank(user);
-        vm.expectRevert(IConfig.CallerNotManager.selector);
+        vm.expectPartialRevert(IAccessControl.AccessControlUnauthorizedAccount.selector);
         corkConfig.pauseUnwindSwaps(id);
 
-        (, UnwindSwapPaused,,,) = corkPool.pausedStates(id);
-        assertFalse(UnwindSwapPaused);
+        pausedStates = corkPool.pausedStates(id);
+        assertFalse(pausedStates.unwindSwapPaused);
     }
 
     function test_PauseUnwindSwapsShouldWorkCorrectly() public {
-        (, bool unwindSwapPaused,,,) = corkPool.pausedStates(id);
-        assertFalse(unwindSwapPaused);
+        IPoolManager.PausedStates memory pausedStates = corkPool.pausedStates(id);
+        assertFalse(pausedStates.unwindSwapPaused);
 
         vm.startPrank(DEFAULT_ADDRESS);
         vm.expectEmit(true, true, true, true);
         emit UnwindSwapPaused(id);
         corkConfig.pauseUnwindSwaps(id);
 
-        (, unwindSwapPaused,,,) = corkPool.pausedStates(id);
-        assertTrue(unwindSwapPaused);
+        pausedStates = corkPool.pausedStates(id);
+        assertTrue(pausedStates.unwindSwapPaused);
 
         vm.expectRevert(IErrors.Paused.selector);
         corkPool.unwindSwap(id, 0, address(8));
@@ -561,218 +578,218 @@ contract CorkConfigTest is Helper {
         vm.startPrank(DEFAULT_ADDRESS);
 
         (,, MarketId _id) = createMarket(10_000);
-        (, bool unwindSwapPaused,,,) = corkPool.pausedStates(_id);
-        assertFalse(unwindSwapPaused);
+        IPoolManager.PausedStates memory pausedStates = corkPool.pausedStates(_id);
+        assertFalse(pausedStates.unwindSwapPaused);
 
         vm.expectEmit(true, true, true, true);
         emit UnwindSwapPaused(_id);
         corkConfig.pauseUnwindSwaps(_id);
 
-        (, unwindSwapPaused,,,) = corkPool.pausedStates(_id);
-        assertTrue(unwindSwapPaused);
+        pausedStates = corkPool.pausedStates(_id);
+        assertTrue(pausedStates.unwindSwapPaused);
 
         vm.expectRevert(IErrors.Paused.selector);
-        corkPool.unwindExercise(_id, 0, address(8), 0, 0);
+        corkPool.unwindExercise(IPoolManager.UnwindExerciseParams({poolId: _id, shares: 0, receiver: address(8), minCompensationOut: 0, maxAssetsIn: 0}));
     }
     //-----------------------------------------------------------------------------------------------------//
 
     //------------------------------------- Tests for unpauseunwindSwap ----------------------------------------//
     function test_UnpauseUnwindSwapsRevertWhenCalledByNonManager() public {
-        (, bool UnwindSwapPaused,,,) = corkPool.pausedStates(id);
-        assertFalse(UnwindSwapPaused);
+        IPoolManager.PausedStates memory pausedStates = corkPool.pausedStates(id);
+        assertFalse(pausedStates.unwindSwapPaused);
 
         vm.startPrank(user);
-        vm.expectRevert(IConfig.CallerNotManager.selector);
+        vm.expectPartialRevert(IAccessControl.AccessControlUnauthorizedAccount.selector);
         corkConfig.unpauseUnwindSwaps(id);
 
-        (, UnwindSwapPaused,,,) = corkPool.pausedStates(id);
-        assertFalse(UnwindSwapPaused);
+        pausedStates = corkPool.pausedStates(id);
+        assertFalse(pausedStates.unwindSwapPaused);
     }
 
     function test_UnpauseUnwindSwapsShouldWorkCorrectly() public {
         vm.startPrank(DEFAULT_ADDRESS);
         corkConfig.pauseUnwindSwaps(id);
 
-        (, bool UnwindSwapPaused,,,) = corkPool.pausedStates(id);
-        assertTrue(UnwindSwapPaused);
+        IPoolManager.PausedStates memory pausedStates = corkPool.pausedStates(id);
+        assertTrue(pausedStates.unwindSwapPaused);
 
         vm.startPrank(DEFAULT_ADDRESS);
         vm.expectEmit(true, true, true, true);
         emit UnwindSwapUnpaused(id);
         corkConfig.unpauseUnwindSwaps(id);
 
-        (, UnwindSwapPaused,,,) = corkPool.pausedStates(id);
-        assertFalse(UnwindSwapPaused);
+        pausedStates = corkPool.pausedStates(id);
+        assertFalse(pausedStates.unwindSwapPaused);
     }
     //-----------------------------------------------------------------------------------------------------//
 
     //------------------------------------- Tests for pauseSwap ----------------------------------------//
     function test_PauseSwapRevertWhenCalledByNonManager() public {
-        (,, bool swapPaused,,) = corkPool.pausedStates(id);
-        assertFalse(swapPaused);
+        IPoolManager.PausedStates memory pausedStates = corkPool.pausedStates(id);
+        assertFalse(pausedStates.swapPaused);
 
         vm.startPrank(user);
-        vm.expectRevert(IConfig.CallerNotManager.selector);
+        vm.expectPartialRevert(IAccessControl.AccessControlUnauthorizedAccount.selector);
         corkConfig.pauseSwaps(id);
 
-        (,, swapPaused,,) = corkPool.pausedStates(id);
-        assertFalse(swapPaused);
+        pausedStates = corkPool.pausedStates(id);
+        assertFalse(pausedStates.swapPaused);
     }
 
     function test_PauseSwapShouldWorkCorrectly() public {
-        (,, bool swapPaused,,) = corkPool.pausedStates(id);
-        assertFalse(swapPaused);
+        IPoolManager.PausedStates memory pausedStates = corkPool.pausedStates(id);
+        assertFalse(pausedStates.swapPaused);
 
         vm.startPrank(DEFAULT_ADDRESS);
         vm.expectEmit(true, true, true, true);
         emit SwapPaused(id);
         corkConfig.pauseSwaps(id);
 
-        (,, swapPaused,,) = corkPool.pausedStates(id);
-        assertTrue(swapPaused);
+        pausedStates = corkPool.pausedStates(id);
+        assertTrue(pausedStates.swapPaused);
     }
     //-----------------------------------------------------------------------------------------------------//
 
     //------------------------------------- Tests for unpauseSwap ----------------------------------------//
     function test_UnpauseSwapRevertWhenCalledByNonManager() public {
-        (,, bool swapPaused,,) = corkPool.pausedStates(id);
-        assertFalse(swapPaused);
+        IPoolManager.PausedStates memory pausedStates = corkPool.pausedStates(id);
+        assertFalse(pausedStates.swapPaused);
 
         vm.startPrank(user);
-        vm.expectRevert(IConfig.CallerNotManager.selector);
+        vm.expectPartialRevert(IAccessControl.AccessControlUnauthorizedAccount.selector);
         corkConfig.unpauseSwaps(id);
 
-        (,, swapPaused,,) = corkPool.pausedStates(id);
-        assertFalse(swapPaused);
+        pausedStates = corkPool.pausedStates(id);
+        assertFalse(pausedStates.swapPaused);
     }
 
     function test_UnpauseSwapShouldWorkCorrectly() public {
         vm.startPrank(DEFAULT_ADDRESS);
         corkConfig.pauseSwaps(id);
 
-        (,, bool swapPaused,,) = corkPool.pausedStates(id);
-        assertTrue(swapPaused);
+        IPoolManager.PausedStates memory pausedStates = corkPool.pausedStates(id);
+        assertTrue(pausedStates.swapPaused);
 
         vm.startPrank(DEFAULT_ADDRESS);
         vm.expectEmit(true, true, true, true);
         emit SwapUnpaused(id);
         corkConfig.unpauseSwaps(id);
 
-        (,, swapPaused,,) = corkPool.pausedStates(id);
-        assertFalse(swapPaused);
+        pausedStates = corkPool.pausedStates(id);
+        assertFalse(pausedStates.swapPaused);
     }
     //-----------------------------------------------------------------------------------------------------//
 
     //------------------------------------- Tests for pauseWithdrawals ----------------------------------------//
     function test_PauseWithdrawalsRevertWhenCalledByNonManager() public {
-        (,,, bool withdrawalPaused,) = corkPool.pausedStates(id);
-        assertFalse(withdrawalPaused);
+        IPoolManager.PausedStates memory pausedStates = corkPool.pausedStates(id);
+        assertFalse(pausedStates.withdrawalPaused);
 
         vm.startPrank(user);
-        vm.expectRevert(IConfig.CallerNotManager.selector);
+        vm.expectPartialRevert(IAccessControl.AccessControlUnauthorizedAccount.selector);
         corkConfig.pauseWithdrawals(id);
 
-        (,,, withdrawalPaused,) = corkPool.pausedStates(id);
-        assertFalse(withdrawalPaused);
+        pausedStates = corkPool.pausedStates(id);
+        assertFalse(pausedStates.withdrawalPaused);
     }
 
     function test_PauseWithdrawalsShouldWorkCorrectly() public {
-        (,,, bool withdrawalPaused,) = corkPool.pausedStates(id);
-        assertFalse(withdrawalPaused);
+        IPoolManager.PausedStates memory pausedStates = corkPool.pausedStates(id);
+        assertFalse(pausedStates.withdrawalPaused);
 
         vm.startPrank(DEFAULT_ADDRESS);
         vm.expectEmit(true, true, true, true);
         emit WithdrawalPaused(id);
         corkConfig.pauseWithdrawals(id);
 
-        (,,, withdrawalPaused,) = corkPool.pausedStates(id);
-        assertTrue(withdrawalPaused);
+        pausedStates = corkPool.pausedStates(id);
+        assertTrue(pausedStates.withdrawalPaused);
     }
     //-----------------------------------------------------------------------------------------------------//
 
     //------------------------------------- Tests for unpauseWithdrawals ----------------------------------------//
     function test_UnpauseWithdrawalsRevertWhenCalledByNonManager() public {
-        (,,, bool withdrawalPaused,) = corkPool.pausedStates(id);
-        assertFalse(withdrawalPaused);
+        IPoolManager.PausedStates memory pausedStates = corkPool.pausedStates(id);
+        assertFalse(pausedStates.withdrawalPaused);
 
         vm.startPrank(user);
-        vm.expectRevert(IConfig.CallerNotManager.selector);
+        vm.expectPartialRevert(IAccessControl.AccessControlUnauthorizedAccount.selector);
         corkConfig.unpauseWithdrawals(id);
 
-        (,,, withdrawalPaused,) = corkPool.pausedStates(id);
-        assertFalse(withdrawalPaused);
+        pausedStates = corkPool.pausedStates(id);
+        assertFalse(pausedStates.withdrawalPaused);
     }
 
     function test_UnpauseWithdrawalsShouldWorkCorrectly() public {
         vm.startPrank(DEFAULT_ADDRESS);
         corkConfig.pauseWithdrawals(id);
 
-        (,,, bool withdrawalPaused,) = corkPool.pausedStates(id);
-        assertTrue(withdrawalPaused);
+        IPoolManager.PausedStates memory pausedStates = corkPool.pausedStates(id);
+        assertTrue(pausedStates.withdrawalPaused);
 
         vm.startPrank(DEFAULT_ADDRESS);
         vm.expectEmit(true, true, true, true);
         emit WithdrawalUnpaused(id);
         corkConfig.unpauseWithdrawals(id);
 
-        (,,, withdrawalPaused,) = corkPool.pausedStates(id);
-        assertFalse(withdrawalPaused);
+        pausedStates = corkPool.pausedStates(id);
+        assertFalse(pausedStates.withdrawalPaused);
     }
     //-----------------------------------------------------------------------------------------------------//
 
     //------------------------------------- Tests for pauseUnwindDepositAndMints ----------------------------------------//
     function test_PauseUnwindDepositAndMintsRevertWhenCalledByNonManager() public {
-        (,,,, bool unwindDepositAndMintPaused) = corkPool.pausedStates(id);
-        assertFalse(unwindDepositAndMintPaused);
+        IPoolManager.PausedStates memory pausedStates = corkPool.pausedStates(id);
+        assertFalse(pausedStates.unwindDepositAndMintPaused);
 
         vm.startPrank(user);
-        vm.expectRevert(IConfig.CallerNotManager.selector);
+        vm.expectPartialRevert(IAccessControl.AccessControlUnauthorizedAccount.selector);
         corkConfig.pauseUnwindDepositAndMints(id);
 
-        (,,,, unwindDepositAndMintPaused) = corkPool.pausedStates(id);
-        assertFalse(unwindDepositAndMintPaused);
+        pausedStates = corkPool.pausedStates(id);
+        assertFalse(pausedStates.unwindDepositAndMintPaused);
     }
 
     function test_PauseUnwindDepositAndMintsShouldWorkCorrectly() public {
-        (,,,, bool unwindDepositAndMintPaused) = corkPool.pausedStates(id);
-        assertFalse(unwindDepositAndMintPaused);
+        IPoolManager.PausedStates memory pausedStates = corkPool.pausedStates(id);
+        assertFalse(pausedStates.unwindDepositAndMintPaused);
 
         vm.startPrank(DEFAULT_ADDRESS);
         vm.expectEmit(true, true, true, true);
         emit ReturnPaused(id);
         corkConfig.pauseUnwindDepositAndMints(id);
 
-        (,,,, unwindDepositAndMintPaused) = corkPool.pausedStates(id);
-        assertTrue(unwindDepositAndMintPaused);
+        pausedStates = corkPool.pausedStates(id);
+        assertTrue(pausedStates.unwindDepositAndMintPaused);
     }
     //-----------------------------------------------------------------------------------------------------//
 
     //------------------------------------- Tests for unpauseUnwindDepositAndMints ----------------------------------------//
     function test_UnpauseUnwindDepositAndMintsRevertWhenCalledByNonManager() public {
-        (,,,, bool unwindDepositAndMintPaused) = corkPool.pausedStates(id);
-        assertFalse(unwindDepositAndMintPaused);
+        IPoolManager.PausedStates memory pausedStates = corkPool.pausedStates(id);
+        assertFalse(pausedStates.unwindDepositAndMintPaused);
 
         vm.startPrank(user);
-        vm.expectRevert(IConfig.CallerNotManager.selector);
+        vm.expectPartialRevert(IAccessControl.AccessControlUnauthorizedAccount.selector);
         corkConfig.unpauseUnwindDepositAndMints(id);
 
-        (,,,, unwindDepositAndMintPaused) = corkPool.pausedStates(id);
-        assertFalse(unwindDepositAndMintPaused);
+        pausedStates = corkPool.pausedStates(id);
+        assertFalse(pausedStates.unwindDepositAndMintPaused);
     }
 
     function test_UnpauseUnwindDepositAndMintsShouldWorkCorrectly() public {
         vm.startPrank(DEFAULT_ADDRESS);
         corkConfig.pauseUnwindDepositAndMints(id);
 
-        (,,,, bool unwindDepositAndMintPaused) = corkPool.pausedStates(id);
-        assertTrue(unwindDepositAndMintPaused);
+        IPoolManager.PausedStates memory pausedStates = corkPool.pausedStates(id);
+        assertTrue(pausedStates.unwindDepositAndMintPaused);
 
         vm.expectEmit(true, true, true, true);
         emit ReturnUnpaused(id);
         corkConfig.unpauseUnwindDepositAndMints(id);
 
-        (,,,, unwindDepositAndMintPaused) = corkPool.pausedStates(id);
-        assertFalse(unwindDepositAndMintPaused);
+        pausedStates = corkPool.pausedStates(id);
+        assertFalse(pausedStates.unwindDepositAndMintPaused);
     }
     //-----------------------------------------------------------------------------------------------------//
 }

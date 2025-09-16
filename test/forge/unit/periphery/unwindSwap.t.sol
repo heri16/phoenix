@@ -2,12 +2,13 @@
 pragma solidity ^0.8.30;
 
 import {Helper} from "../../Helper.sol";
-
 import {PoolShare} from "contracts/core/assets/PoolShare.sol";
-import {IErrors} from "contracts/interfaces/IErrors.sol";
+import {ICorkPoolAdapter} from "contracts/interfaces/ICorkPoolAdapter.sol";
+import {IUnwindSwap} from "contracts/interfaces/IUnwindSwap.sol";
 import {MarketId} from "contracts/libraries/Market.sol";
 import {TransferHelper} from "contracts/libraries/TransferHelper.sol";
 import {CorkPoolAdapter} from "contracts/periphery/CorkPoolAdapter.sol";
+import {ErrorsLib} from "contracts/periphery/bundler3/libraries/ErrorsLib.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/interfaces/IERC20.sol";
 import {ERC20Mock} from "test/mocks/ERC20Mock.sol";
 
@@ -24,7 +25,7 @@ contract CorkPoolAdapterUnwindSwapTest is Helper {
 
     function setUp() public {
         vm.startPrank(DEFAULT_ADDRESS);
-        deployContracts(DEFAULT_ADDRESS, DEFAULT_ADDRESS);
+        deployContracts(DEFAULT_ADDRESS, DEFAULT_ADDRESS, DEFAULT_ADDRESS);
         deployPeriphery();
         vm.stopPrank();
     }
@@ -69,7 +70,7 @@ contract CorkPoolAdapterUnwindSwapTest is Helper {
         uint256 minSwapTokenOut = 50e18;
 
         // Get preview of the unwind swap for reference
-        (uint256 previewRefAsset, uint256 previewSwapToken,,,) = corkPool.previewUnwindSwap(defaultCurrencyId, unwindAmount);
+        IUnwindSwap.UnwindSwapReturnParams memory previewReturnParams = corkPool.previewUnwindSwap(defaultCurrencyId, unwindAmount);
 
         // Record initial balances
         uint256 receiverRefAssetBefore = referenceAsset.balanceOf(RECEIVER);
@@ -81,7 +82,7 @@ contract CorkPoolAdapterUnwindSwapTest is Helper {
         uint256 adapterCollateralBefore = collateralAsset.balanceOf(address(corkPoolAdapter));
 
         // Execute unwind swap
-        corkPoolAdapter.safeUnwindSwap(defaultCurrencyId, unwindAmount, RECEIVER, minReferenceOut, minSwapTokenOut, block.timestamp + 1 hours);
+        corkPoolAdapter.safeUnwindSwap(ICorkPoolAdapter.SafeUnwindSwapParams({poolId: defaultCurrencyId, collateralAssets: unwindAmount, receiver: RECEIVER, minReferenceAssetsOut: minReferenceOut, minCstSharesOut: minSwapTokenOut, deadline: block.timestamp + 1 hours}));
 
         // Verify results using scoped variables
         {
@@ -94,8 +95,8 @@ contract CorkPoolAdapterUnwindSwapTest is Helper {
             uint256 actualSwapTokenReceived = receiverSwapTokenAfter - receiverSwapTokenBefore;
 
             assertEq(actualCollateralUsed, unwindAmount, "Should use exactly the specified collateral amount");
-            assertEq(actualRefAssetReceived, previewRefAsset, "Should receive preview reference asset amount");
-            assertEq(actualSwapTokenReceived, previewSwapToken, "Should receive preview swap token amount");
+            assertEq(actualRefAssetReceived, previewReturnParams.receivedReferenceAsset, "Should receive preview reference asset amount");
+            assertEq(actualSwapTokenReceived, previewReturnParams.receivedSwapToken, "Should receive preview swap token amount");
             assertGe(actualRefAssetReceived, minReferenceOut, "Should receive at least minimum reference assets");
             assertGe(actualSwapTokenReceived, minSwapTokenOut, "Should receive at least minimum swap tokens");
         }
@@ -117,7 +118,7 @@ contract CorkPoolAdapterUnwindSwapTest is Helper {
         uint256 adapterCollateralBefore = collateralAsset.balanceOf(address(corkPoolAdapter));
 
         // Execute unwind swap with type(uint256).max to use all adapter balance
-        corkPoolAdapter.safeUnwindSwap(defaultCurrencyId, type(uint256).max, RECEIVER, minReferenceOut, minSwapTokenOut, block.timestamp + 1 hours);
+        corkPoolAdapter.safeUnwindSwap(ICorkPoolAdapter.SafeUnwindSwapParams({poolId: defaultCurrencyId, collateralAssets: type(uint256).max, receiver: RECEIVER, minReferenceAssetsOut: minReferenceOut, minCstSharesOut: minSwapTokenOut, deadline: block.timestamp + 1 hours}));
 
         // Verify all collateral was used
         uint256 adapterCollateralAfter = collateralAsset.balanceOf(address(corkPoolAdapter));
@@ -137,8 +138,8 @@ contract CorkPoolAdapterUnwindSwapTest is Helper {
         uint256 minReferenceOut = 50e18;
         uint256 minSwapTokenOut = 50e18;
 
-        vm.expectRevert(IErrors.DeadlineExceeded.selector);
-        corkPoolAdapter.safeUnwindSwap(defaultCurrencyId, unwindAmount, RECEIVER, minReferenceOut, minSwapTokenOut, block.timestamp - 1);
+        vm.expectRevert(ErrorsLib.DeadlineExceeded.selector);
+        corkPoolAdapter.safeUnwindSwap(ICorkPoolAdapter.SafeUnwindSwapParams({poolId: defaultCurrencyId, collateralAssets: unwindAmount, receiver: RECEIVER, minReferenceAssetsOut: minReferenceOut, minCstSharesOut: minSwapTokenOut, deadline: block.timestamp - 1}));
 
         vm.stopPrank();
     }
@@ -151,8 +152,8 @@ contract CorkPoolAdapterUnwindSwapTest is Helper {
         uint256 minReferenceOut = 50e18;
         uint256 minSwapTokenOut = 50e18;
 
-        vm.expectRevert(IErrors.ZeroAddress.selector);
-        corkPoolAdapter.safeUnwindSwap(defaultCurrencyId, unwindAmount, address(0), minReferenceOut, minSwapTokenOut, block.timestamp + 1 hours);
+        vm.expectRevert(ErrorsLib.ZeroAddress.selector);
+        corkPoolAdapter.safeUnwindSwap(ICorkPoolAdapter.SafeUnwindSwapParams({poolId: defaultCurrencyId, collateralAssets: unwindAmount, receiver: address(0), minReferenceAssetsOut: minReferenceOut, minCstSharesOut: minSwapTokenOut, deadline: block.timestamp + 1 hours}));
 
         vm.stopPrank();
     }
@@ -164,8 +165,8 @@ contract CorkPoolAdapterUnwindSwapTest is Helper {
         uint256 minReferenceOut = 50e18;
         uint256 minSwapTokenOut = 50e18;
 
-        vm.expectRevert(IErrors.ZeroAmount.selector);
-        corkPoolAdapter.safeUnwindSwap(defaultCurrencyId, 0, RECEIVER, minReferenceOut, minSwapTokenOut, block.timestamp + 1 hours);
+        vm.expectRevert(ErrorsLib.ZeroAmount.selector);
+        corkPoolAdapter.safeUnwindSwap(ICorkPoolAdapter.SafeUnwindSwapParams({poolId: defaultCurrencyId, collateralAssets: 0, receiver: RECEIVER, minReferenceAssetsOut: minReferenceOut, minCstSharesOut: minSwapTokenOut, deadline: block.timestamp + 1 hours}));
 
         vm.stopPrank();
     }
@@ -184,8 +185,8 @@ contract CorkPoolAdapterUnwindSwapTest is Helper {
 
         vm.startPrank(DEFAULT_ADDRESS);
 
-        vm.expectRevert(IErrors.SlippageExceeded.selector);
-        corkPoolAdapter.safeUnwindSwap(defaultCurrencyId, unwindAmount, RECEIVER, minReferenceOut, minSwapTokenOut, block.timestamp + 1 hours);
+        vm.expectRevert(ErrorsLib.SlippageExceeded.selector);
+        corkPoolAdapter.safeUnwindSwap(ICorkPoolAdapter.SafeUnwindSwapParams({poolId: defaultCurrencyId, collateralAssets: unwindAmount, receiver: RECEIVER, minReferenceAssetsOut: minReferenceOut, minCstSharesOut: minSwapTokenOut, deadline: block.timestamp + 1 hours}));
 
         vm.stopPrank();
     }
@@ -204,8 +205,8 @@ contract CorkPoolAdapterUnwindSwapTest is Helper {
 
         vm.startPrank(DEFAULT_ADDRESS);
 
-        vm.expectRevert(IErrors.SlippageExceeded.selector);
-        corkPoolAdapter.safeUnwindSwap(defaultCurrencyId, unwindAmount, RECEIVER, minReferenceOut, minSwapTokenOut, block.timestamp + 1 hours);
+        vm.expectRevert(ErrorsLib.SlippageExceeded.selector);
+        corkPoolAdapter.safeUnwindSwap(ICorkPoolAdapter.SafeUnwindSwapParams({poolId: defaultCurrencyId, collateralAssets: unwindAmount, receiver: RECEIVER, minReferenceAssetsOut: minReferenceOut, minCstSharesOut: minSwapTokenOut, deadline: block.timestamp + 1 hours}));
 
         vm.stopPrank();
     }
@@ -218,8 +219,8 @@ contract CorkPoolAdapterUnwindSwapTest is Helper {
         uint256 minSwapTokenOut = 50e18;
 
         vm.prank(address(0x999));
-        vm.expectRevert(IErrors.UnauthorizedSender.selector);
-        corkPoolAdapter.safeUnwindSwap(defaultCurrencyId, unwindAmount, RECEIVER, minReferenceOut, minSwapTokenOut, block.timestamp + 1 hours);
+        vm.expectRevert(ErrorsLib.UnauthorizedSender.selector);
+        corkPoolAdapter.safeUnwindSwap(ICorkPoolAdapter.SafeUnwindSwapParams({poolId: defaultCurrencyId, collateralAssets: unwindAmount, receiver: RECEIVER, minReferenceAssetsOut: minReferenceOut, minCstSharesOut: minSwapTokenOut, deadline: block.timestamp + 1 hours}));
     }
 
     function test_safeUnwindSwap_revertsOnInsufficientBalance() public {
@@ -234,7 +235,7 @@ contract CorkPoolAdapterUnwindSwapTest is Helper {
         collateralAsset.transfer(address(corkPoolAdapter), 50e18);
 
         vm.expectRevert();
-        corkPoolAdapter.safeUnwindSwap(defaultCurrencyId, unwindAmount, RECEIVER, minReferenceOut, minSwapTokenOut, block.timestamp + 1 hours);
+        corkPoolAdapter.safeUnwindSwap(ICorkPoolAdapter.SafeUnwindSwapParams({poolId: defaultCurrencyId, collateralAssets: unwindAmount, receiver: RECEIVER, minReferenceAssetsOut: minReferenceOut, minCstSharesOut: minSwapTokenOut, deadline: block.timestamp + 1 hours}));
 
         vm.stopPrank();
     }

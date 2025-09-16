@@ -12,12 +12,9 @@ interface Initialize {
     /**
      * @notice initialize a new pool, this will initialize Cork Pool and Liquidity Vault and deploy new LV token
      * @dev Only callable by config contract Deploy new CPT and CST tokens for the market
-     * @param referenceAsset address of Reference Asset token(e.g stETH)
-     * @param collateralAsset address of Collateral Asset token(e.g WETH)
-     * @param expiryTimestamp expiry timestamp for Swap Token, this is the exact time in unix epoch timestamp in seconds of when the Swap Token should expires
-     * @param rateOracle address of IRateOracle contract
+     * @param poolParams Parameters for the new pool
      */
-    function createNewMarket(address referenceAsset, address collateralAsset, uint256 expiryTimestamp, address rateOracle, uint256 rateMin, uint256 rateMax, uint256 rateChangePerDayMax, uint256 rateChangeCapacityMax) external;
+    function createNewPool(Market calldata poolParams) external;
 
     /**
      * @notice update Cork Pool unwindSwap fee rate for a pair
@@ -58,13 +55,18 @@ interface Initialize {
 
     /**
      * @notice Generates a unique market ID from market parameters
-     * @param referenceAsset The address of the reference asset (e.g., ETH for depeg protection)
-     * @param collateralAsset The address of the collateral asset (e.g., stETH)
-     * @param expiry The expiry timestamp for the market
-     * @param rateOracle The address of the IRateOracle contract
+     * @param market The market parameters
+     * market.referenceAsset The address of the reference asset (e.g., ETH for depeg protection)
+     * market.collateralAsset The address of the collateral asset (e.g., stETH)
+     * market.expiryTimestamp The expiry timestamp for the market
+     * market.rateOracle The address of the IRateOracle contract
+     * market.rateMin The minimum rate for the market
+     * market.rateMax The maximum rate for the market
+     * market.rateChangePerDayMax The maximum rate change per day for the market
+     * market.rateChangeCapacityMax The maximum rate change capacity for the market
      * @return marketId The unique market identifier
      */
-    function getId(address referenceAsset, address collateralAsset, uint256 expiry, address rateOracle, uint256 rateMin, uint256 rateMax, uint256 rateChangePerDayMax, uint256 rateChangeCapacityMax) external view returns (MarketId marketId);
+    function getId(Market calldata market) external view returns (MarketId marketId);
 
     /**
      * @notice Gets the market information for a given market ID

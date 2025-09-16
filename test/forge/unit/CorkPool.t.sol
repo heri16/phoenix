@@ -11,13 +11,11 @@ import {IPoolShare} from "contracts/interfaces/IPoolShare.sol";
 import {IRateOracle} from "contracts/interfaces/IRateOracle.sol";
 import {IUnwindSwap} from "contracts/interfaces/IUnwindSwap.sol";
 import {Initialize} from "contracts/interfaces/Initialize.sol";
-import {CollateralAssetManager, CollateralAssetManagerLibrary} from "contracts/libraries/CollateralAssetManager.sol";
 import {Guard} from "contracts/libraries/Guard.sol";
-import {Market, MarketId, MarketLibrary} from "contracts/libraries/Market.sol";
+import {Market, MarketId} from "contracts/libraries/Market.sol";
 import {MathHelper} from "contracts/libraries/MathHelper.sol";
 import {PoolLibrary} from "contracts/libraries/PoolLib.sol";
-import {Balances, CorkPoolPoolArchive, PoolState, State} from "contracts/libraries/State.sol";
-import {SwapToken, SwapTokenLibrary} from "contracts/libraries/SwapToken.sol";
+import {Balances, CollateralAssetManager, CorkPoolPoolArchive, PoolState, State} from "contracts/libraries/State.sol";
 import {TransferHelper} from "contracts/libraries/TransferHelper.sol";
 import {Helper} from "test/forge/Helper.sol";
 import {DummyWETH, ERC20Mock} from "test/mocks/DummyWETH.sol";
@@ -42,7 +40,7 @@ contract CorkPoolTest is Helper {
         owner = address(0x9ABC);
 
         vm.startPrank(DEFAULT_ADDRESS);
-        deployContracts(DEFAULT_ADDRESS, DEFAULT_ADDRESS);
+        deployContracts(DEFAULT_ADDRESS, DEFAULT_ADDRESS, DEFAULT_ADDRESS);
         (collateralAsset, referenceAsset, marketId) = createMarket(1 days);
 
         vm.deal(user, type(uint256).max);
@@ -52,6 +50,9 @@ contract CorkPoolTest is Helper {
         vm.startPrank(user);
         collateralAsset.deposit{value: type(uint128).max}();
         referenceAsset.deposit{value: type(uint128).max}();
+
+        collateralAsset.approve(address(corkPool), type(uint256).max);
+        referenceAsset.approve(address(corkPool), type(uint256).max);
 
         vm.startPrank(user2);
         collateralAsset.deposit{value: type(uint128).max}();
@@ -65,7 +66,7 @@ contract CorkPoolTest is Helper {
 
     // ================================ Market Creation Tests ================================ //
 
-    function test_createNewMarket_ShouldCreateMarket() external {
+    function test_createNewPool_ShouldCreateMarket() external {
         ERC20Mock newCollateral = new DummyWETH();
         ERC20Mock newReference = new DummyWETH();
         uint256 expiry = block.timestamp + 30 days;
@@ -73,7 +74,9 @@ contract CorkPoolTest is Helper {
         uint256 rateMax = 1.1 ether;
         uint256 rateChangePerDayMax = 0.0001 ether;
         uint256 rateChangeCapacityMax = 0.001 ether;
-        MarketId newId = corkPool.getId(address(newReference), address(newCollateral), expiry, address(testOracle), rateMin, rateMax, rateChangePerDayMax, rateChangeCapacityMax);
+        Market memory market =
+            Market({collateralAsset: address(newCollateral), referenceAsset: address(newReference), expiryTimestamp: expiry, rateOracle: address(testOracle), rateMin: rateMin, rateMax: rateMax, rateChangePerDayMax: rateChangePerDayMax, rateChangeCapacityMax: rateChangeCapacityMax});
+        MarketId newId = corkPool.getId(market);
 
         vm.startPrank(address(DEFAULT_ADDRESS));
         testOracle.setRate(newId, 1 ether);
@@ -86,7 +89,7 @@ contract CorkPoolTest is Helper {
         vm.startPrank(address(corkConfig));
         vm.expectEmit(true, true, true, true);
         emit Initialize.MarketCreated(newId, address(newReference), address(newCollateral), expiry, address(testOracle), expectedPrincipalToken, expectedSwapToken);
-        corkPool.createNewMarket(address(newReference), address(newCollateral), expiry, address(testOracle), rateMin, rateMax, rateChangePerDayMax, rateChangeCapacityMax);
+        corkPool.createNewPool(market);
 
         Market memory marketParams = corkPool.market(newId);
         assertEq(marketParams.referenceAsset, address(newReference), "Reference asset should match");
@@ -101,32 +104,34 @@ contract CorkPoolTest is Helper {
         vm.stopPrank();
     }
 
-    function test_createNewMarket_ShouldRevert_WhenNotConfig() external {
+    function test_createNewPool_ShouldRevert_WhenNotConfig() external {
         vm.startPrank(user);
 
         address rateOracle = address(testOracle);
         vm.expectRevert(abi.encodeWithSignature("OnlyConfigAllowed()"));
-        corkPool.createNewMarket(address(referenceAsset), address(collateralAsset), block.timestamp + 30 days, rateOracle, 0.9 ether, 1.1 ether, 0.001 ether, 0.001 ether);
+        corkPool.createNewPool(
+            Market({collateralAsset: address(collateralAsset), referenceAsset: address(referenceAsset), expiryTimestamp: block.timestamp + 30 days, rateOracle: address(testOracle), rateMin: 0.9 ether, rateMax: 1.1 ether, rateChangePerDayMax: 0.001 ether, rateChangeCapacityMax: 0.001 ether})
+        );
 
         vm.stopPrank();
     }
 
-    function test_createNewMarket_ShouldRevert_WhenExpiryIsZero() external {
+    function test_createNewPool_ShouldRevert_WhenExpiryIsZero() external {
         vm.startPrank(address(corkConfig));
 
         address rateOracle = address(testOracle);
         vm.expectRevert(abi.encodeWithSignature("InvalidExpiry()"));
-        corkPool.createNewMarket(address(referenceAsset), address(collateralAsset), 0, rateOracle, 0.9 ether, 1.1 ether, 0.001 ether, 0.001 ether);
+        corkPool.createNewPool(Market({collateralAsset: address(collateralAsset), referenceAsset: address(referenceAsset), expiryTimestamp: 0, rateOracle: address(testOracle), rateMin: 0.9 ether, rateMax: 1.1 ether, rateChangePerDayMax: 0.001 ether, rateChangeCapacityMax: 0.001 ether}));
 
         vm.stopPrank();
     }
 
-    function test_createNewMarket_ShouldRevert_WhenAlreadyExists() external {
+    function test_createNewPool_ShouldRevert_WhenAlreadyExists() external {
         vm.startPrank(address(corkConfig));
 
         address rateOracle = address(testOracle);
         vm.expectRevert(abi.encodeWithSignature("AlreadyInitialized()"));
-        corkPool.createNewMarket(address(referenceAsset), address(collateralAsset), 1 days, rateOracle, 0.9 ether, 1.1 ether, 1 ether, 1 ether);
+        corkPool.createNewPool(Market({collateralAsset: address(collateralAsset), referenceAsset: address(referenceAsset), expiryTimestamp: 1 days, rateOracle: address(testOracle), rateMin: 0.9 ether, rateMax: 1.1 ether, rateChangePerDayMax: 1 ether, rateChangeCapacityMax: 1 ether}));
         vm.stopPrank();
     }
 
@@ -293,13 +298,17 @@ contract CorkPoolTest is Helper {
         (uint256 expectedAssets, uint256 expectedOtherSpent, uint256 expectedFee) = corkPool.previewExercise(marketId, exerciseShares, 0);
 
         // Expect both PoolSwap and ERC4626-compatible withdraw events
+
         vm.expectEmit(true, true, true, true);
-        emit IPoolManager.PoolSwap(marketId, user, user, expectedAssets, 0, 0, false);
+        emit IPoolManager.PoolSwap(marketId, user, user, expectedAssets, expectedOtherSpent, 0, 0, false);
+        vm.expectEmit(true, true, true, true);
+        emit IPoolManager.PoolFee(marketId, user, expectedFee, 0);
         vm.expectEmit(true, true, true, true, principalToken);
         emit IPoolShare.Withdraw(user, user, user, expectedAssets, 0);
         vm.expectEmit(true, true, true, true, principalToken);
-        emit IPoolShare.DepositOther(user, user, address(referenceAsset), 0, exerciseShares);
-        (uint256 assets, uint256 otherAssetSpent, uint256 fee) = corkPool.exercise(marketId, exerciseShares, 0, user, 0, type(uint256).max);
+        emit IPoolShare.DepositOther(user, user, address(referenceAsset), expectedOtherSpent, 0);
+
+        (uint256 assets, uint256 otherAssetSpent, uint256 fee) = corkPool.exercise(IPoolManager.ExerciseParams({poolId: marketId, shares: exerciseShares, compensation: 0, receiver: user, minAssetsOut: 0, maxOtherAssetSpent: type(uint256).max}));
         vm.stopPrank();
 
         assertGt(assets, 0, "Should receive collateral assets");
@@ -315,7 +324,7 @@ contract CorkPoolTest is Helper {
         corkPool.deposit(marketId, 1000 ether, currentCaller());
 
         uint256 compensation = 50 ether;
-        (uint256 assets, uint256 otherAssetSpent, uint256 fee) = corkPool.exercise(marketId, 0, compensation, user, 0, type(uint256).max);
+        (uint256 assets, uint256 otherAssetSpent, uint256 fee) = corkPool.exercise(IPoolManager.ExerciseParams({poolId: marketId, shares: 0, compensation: compensation, receiver: user, minAssetsOut: 0, maxOtherAssetSpent: type(uint256).max}));
         vm.stopPrank();
 
         assertGt(assets, 0, "Should receive collateral assets");
@@ -328,7 +337,7 @@ contract CorkPoolTest is Helper {
         corkPool.deposit(marketId, 1000 ether, currentCaller());
 
         vm.expectRevert(abi.encodeWithSignature("InvalidParams()"));
-        corkPool.exercise(marketId, 100 ether, 50 ether, user, 0, type(uint256).max);
+        corkPool.exercise(IPoolManager.ExerciseParams({poolId: marketId, shares: 100 ether, compensation: 50 ether, receiver: user, minAssetsOut: 0, maxOtherAssetSpent: type(uint256).max}));
         vm.stopPrank();
     }
 
@@ -338,7 +347,7 @@ contract CorkPoolTest is Helper {
         corkPool.deposit(marketId, 1000 ether, currentCaller());
 
         vm.expectRevert(abi.encodeWithSignature("InvalidParams()"));
-        corkPool.exercise(marketId, 0, 0, user, 0, type(uint256).max);
+        corkPool.exercise(IPoolManager.ExerciseParams({poolId: marketId, shares: 0, compensation: 0, receiver: user, minAssetsOut: 0, maxOtherAssetSpent: type(uint256).max}));
         vm.stopPrank();
     }
 
@@ -347,7 +356,7 @@ contract CorkPoolTest is Helper {
 
         vm.startPrank(user);
         vm.expectRevert(abi.encodeWithSignature("Expired()"));
-        corkPool.exercise(marketId, 100 ether, 0, user, 0, type(uint256).max);
+        corkPool.exercise(IPoolManager.ExerciseParams({poolId: marketId, shares: 100 ether, compensation: 0, receiver: user, minAssetsOut: 0, maxOtherAssetSpent: type(uint256).max}));
         vm.stopPrank();
     }
 
@@ -361,7 +370,7 @@ contract CorkPoolTest is Helper {
         corkPool.deposit(marketId, 1000 ether, currentCaller());
 
         vm.expectRevert(abi.encodeWithSignature("Paused()"));
-        corkPool.exercise(marketId, 100 ether, 0, user, 0, type(uint256).max);
+        corkPool.exercise(IPoolManager.ExerciseParams({poolId: marketId, shares: 100 ether, compensation: 0, receiver: user, minAssetsOut: 0, maxOtherAssetSpent: type(uint256).max}));
         vm.stopPrank();
     }
 
@@ -379,13 +388,14 @@ contract CorkPoolTest is Helper {
         (address principalToken,) = corkPool.shares(marketId);
         // Expect both PoolSwap and ERC4626-compatible withdraw events
         vm.expectEmit(true, true, true, true);
-        emit IPoolManager.PoolSwap(marketId, user, user, expectedCompensation, expectedCompensation, 0, false);
-
+        emit IPoolManager.PoolSwap(marketId, user, user, assetAmount, expectedCompensation, 0, 0, false);
+        vm.expectEmit(true, true, true, true, address(corkPool));
+        emit IPoolManager.PoolFee(marketId, user, 1_010_101_010_101_010_101, 0);
         vm.expectEmit(true, true, true, true, principalToken);
         emit IPoolShare.Withdraw(user, user, user, assetAmount, 0);
         vm.expectEmit(true, true, true, true, principalToken);
-        emit IPoolShare.DepositOther(user, user, address(referenceAsset), expectedCompensation, expectedCompensation);
-        (uint256 shares, uint256 compensation) = corkPool.swap(marketId, assetAmount, user);
+        emit IPoolShare.DepositOther(user, user, address(referenceAsset), expectedCompensation, 0);
+        (uint256 shares, uint256 compensation, uint256 fee) = corkPool.swap(marketId, assetAmount, user);
         vm.stopPrank();
 
         assertGt(shares, 0, "Should provide CST shares");
@@ -431,21 +441,24 @@ contract CorkPoolTest is Helper {
 
         uint256 unwindAmount = 50 ether;
         // Preview to get expected values
-        (uint256 expectedRef, uint256 expectedSwap, uint256 expectedFeePercentage, uint256 expectedFee, uint256 expectedSwapRate) = corkPool.previewUnwindSwap(marketId, unwindAmount);
+        IUnwindSwap.UnwindSwapReturnParams memory previewReturnParams = corkPool.previewUnwindSwap(marketId, unwindAmount);
 
         (address principalToken,) = corkPool.shares(marketId);
         vm.expectEmit(true, true, false, true);
-        emit IPoolManager.PoolSwap(marketId, user, user, unwindAmount, expectedRef, expectedFee, true);
+        emit IPoolManager.PoolSwap(marketId, user, user, unwindAmount, previewReturnParams.receivedReferenceAsset, 0, 0, true);
+        vm.expectEmit(true, true, true, true, address(corkPool));
+        emit IPoolManager.PoolFee(marketId, user, previewReturnParams.fee, 0);
         vm.expectEmit(true, true, false, true, principalToken);
         emit IPoolShare.Deposit(user, user, unwindAmount, 0);
         vm.expectEmit(true, true, false, true, principalToken);
-        emit IPoolShare.WithdrawOther(user, user, user, address(referenceAsset), expectedRef, expectedSwap);
-        (uint256 receivedRef, uint256 receivedSwap, uint256 feePercentage, uint256 fee, uint256 swapRate) = corkPool.unwindSwap(marketId, unwindAmount, user);
+        emit IPoolShare.WithdrawOther(user, user, user, address(referenceAsset), previewReturnParams.receivedReferenceAsset, 0);
+
+        IUnwindSwap.UnwindSwapReturnParams memory unwindReturnParams = corkPool.unwindSwap(marketId, unwindAmount, user);
         vm.stopPrank();
 
-        assertGt(receivedRef, 0, "Should receive reference asset");
-        assertGt(receivedSwap, 0, "Should receive swap tokens");
-        assertGt(swapRate, 0, "Should have swap rate");
+        assertGt(unwindReturnParams.receivedReferenceAsset, 0, "Should receive reference asset");
+        assertGt(unwindReturnParams.receivedSwapToken, 0, "Should receive swap tokens");
+        assertGt(unwindReturnParams.swapRate, 0, "Should have swap rate");
     }
 
     function test_unwindSwap_ShouldRevert_WhenZeroAmount() external {
@@ -564,12 +577,15 @@ contract CorkPoolTest is Helper {
 
         (address principalToken,) = corkPool.shares(marketId);
         vm.expectEmit(true, true, false, true);
-        emit IPoolManager.PoolSwap(marketId, user, user, expectedAssetIn, expectedCompensation, 0, true);
+        emit IPoolManager.PoolSwap(marketId, user, user, expectedAssetIn, expectedCompensation, 0, 0, true);
+        vm.expectEmit(true, true, true, true, address(corkPool));
+        emit IPoolManager.PoolFee(marketId, user, 505_044_600_445_525_119, 0);
         vm.expectEmit(true, true, false, true, principalToken);
         emit IPoolShare.Deposit(user, user, expectedAssetIn, 0);
         vm.expectEmit(true, true, false, true, principalToken);
-        emit IPoolShare.WithdrawOther(user, user, user, address(referenceAsset), expectedCompensation, expectedAssetIn);
-        (uint256 assetIn, uint256 compensationOut) = corkPool.unwindExercise(marketId, shares, user, 0, type(uint256).max);
+        emit IPoolShare.WithdrawOther(user, user, user, address(referenceAsset), expectedCompensation, 0);
+
+        (uint256 assetIn, uint256 compensationOut, uint256 fee) = corkPool.unwindExercise(IPoolManager.UnwindExerciseParams({poolId: marketId, shares: shares, receiver: user, minCompensationOut: 0, maxAssetsIn: type(uint256).max}));
         vm.stopPrank();
 
         assertGt(assetIn, 0, "Should require collateral input");
@@ -579,7 +595,7 @@ contract CorkPoolTest is Helper {
     function test_unwindExercise_ShouldRevert_WhenZeroShares() external {
         vm.startPrank(user);
         vm.expectRevert(abi.encodeWithSignature("InvalidAmount()"));
-        corkPool.unwindExercise(marketId, 0, user, 0, type(uint256).max);
+        corkPool.unwindExercise(IPoolManager.UnwindExerciseParams({poolId: marketId, shares: 0, receiver: user, minCompensationOut: 0, maxAssetsIn: type(uint256).max}));
         vm.stopPrank();
     }
 
@@ -588,7 +604,7 @@ contract CorkPoolTest is Helper {
 
         vm.startPrank(user);
         vm.expectRevert(abi.encodeWithSignature("Expired()"));
-        corkPool.unwindExercise(marketId, 100 ether, user, 0, type(uint256).max);
+        corkPool.unwindExercise(IPoolManager.UnwindExerciseParams({poolId: marketId, shares: 100 ether, receiver: user, minCompensationOut: 0, maxAssetsIn: type(uint256).max}));
         vm.stopPrank();
     }
 
@@ -663,7 +679,9 @@ contract CorkPoolTest is Helper {
         // Create a new market ID that hasn't been initialized
         ERC20Mock newCollateral = new DummyWETH();
         ERC20Mock newReference = new DummyWETH();
-        MarketId uninitializedId = corkPool.getId(address(newReference), address(newCollateral), block.timestamp + 30 days, address(testOracle), 0.9 ether, 1.1 ether, 0.001 ether, 0.001 ether);
+        MarketId uninitializedId = corkPool.getId(
+            Market({collateralAsset: address(newCollateral), referenceAsset: address(newReference), expiryTimestamp: block.timestamp + 30 days, rateOracle: address(testOracle), rateMin: 0.9 ether, rateMax: 1.1 ether, rateChangePerDayMax: 0.001 ether, rateChangeCapacityMax: 0.001 ether})
+        );
 
         vm.expectRevert(abi.encodeWithSelector(IErrors.NotInitialized.selector));
         corkPool.maxRedeem(uninitializedId, user);
@@ -779,7 +797,9 @@ contract CorkPoolTest is Helper {
         // Case 1: Market not initialized
         ERC20Mock newCollateral = new DummyWETH();
         ERC20Mock newReference = new DummyWETH();
-        MarketId uninitializedId = corkPool.getId(address(newReference), address(newCollateral), block.timestamp + 30 days, address(testOracle), 0.9 ether, 1.1 ether, 0.001 ether, 0.001 ether);
+        MarketId uninitializedId = corkPool.getId(
+            Market({collateralAsset: address(newCollateral), referenceAsset: address(newReference), expiryTimestamp: block.timestamp + 30 days, rateOracle: address(testOracle), rateMin: 0.9 ether, rateMax: 1.1 ether, rateChangePerDayMax: 0.001 ether, rateChangeCapacityMax: 0.001 ether})
+        );
 
         // Should revert in this one case of Uninitialized market
         vm.expectRevert(abi.encodeWithSelector(IErrors.NotInitialized.selector));
@@ -817,7 +837,9 @@ contract CorkPoolTest is Helper {
         // Create a new market ID that hasn't been initialized
         ERC20Mock newCollateral = new DummyWETH();
         ERC20Mock newReference = new DummyWETH();
-        MarketId uninitializedId = corkPool.getId(address(newReference), address(newCollateral), block.timestamp + 30 days, address(testOracle), 0.9 ether, 1.1 ether, 0.001 ether, 0.001 ether);
+        MarketId uninitializedId = corkPool.getId(
+            Market({collateralAsset: address(newCollateral), referenceAsset: address(newReference), expiryTimestamp: block.timestamp + 30 days, rateOracle: address(testOracle), rateMin: 0.9 ether, rateMax: 1.1 ether, rateChangePerDayMax: 0.001 ether, rateChangeCapacityMax: 0.001 ether})
+        );
 
         vm.expectRevert(abi.encodeWithSelector(IErrors.NotInitialized.selector));
         corkPool.maxSwap(uninitializedId, user);
@@ -977,7 +999,7 @@ contract CorkPoolTest is Helper {
         emit IPoolShare.Withdraw(user, user, user, collateralOut, expectedSharesIn);
         vm.expectEmit(true, true, true, true, principalToken);
         emit IPoolShare.WithdrawOther(user, user, user, address(referenceAsset), expectedRefOut, expectedSharesIn);
-        (uint256 sharesIn, uint256 actualCollateralOut, uint256 actualRefOut) = corkPool.withdraw(marketId, collateralOut, 0, user, user);
+        (uint256 sharesIn, uint256 actualCollateralOut, uint256 actualRefOut) = corkPool.withdraw(IPoolManager.WithdrawParams({poolId: marketId, collateralAssetOut: collateralOut, referenceAssetOut: 0, owner: user, receiver: user}));
         vm.stopPrank();
 
         assertGt(sharesIn, 0, "Should burn shares");
@@ -989,7 +1011,7 @@ contract CorkPoolTest is Helper {
 
         vm.startPrank(user);
         vm.expectRevert(abi.encodeWithSignature("InvalidParams()"));
-        corkPool.withdraw(marketId, 0, 0, user, user);
+        corkPool.withdraw(IPoolManager.WithdrawParams({poolId: marketId, collateralAssetOut: 0, referenceAssetOut: 0, owner: user, receiver: user}));
         vm.stopPrank();
     }
 
@@ -998,14 +1020,14 @@ contract CorkPoolTest is Helper {
 
         vm.startPrank(user);
         vm.expectRevert(abi.encodeWithSignature("InvalidParams()"));
-        corkPool.withdraw(marketId, 100 ether, 50 ether, user, user);
+        corkPool.withdraw(IPoolManager.WithdrawParams({poolId: marketId, collateralAssetOut: 100 ether, referenceAssetOut: 50 ether, owner: user, receiver: user}));
         vm.stopPrank();
     }
 
     function test_withdraw_ShouldRevert_WhenNotExpired() external {
         vm.startPrank(user);
         vm.expectRevert(abi.encodeWithSignature("NotExpired()"));
-        corkPool.withdraw(marketId, 100 ether, 0, user, user);
+        corkPool.withdraw(IPoolManager.WithdrawParams({poolId: marketId, collateralAssetOut: 100 ether, referenceAssetOut: 0, owner: user, receiver: user}));
         vm.stopPrank();
     }
 
@@ -1021,7 +1043,7 @@ contract CorkPoolTest is Helper {
         vm.warp(block.timestamp + 2 days);
 
         vm.expectRevert(abi.encodeWithSignature("Paused()"));
-        corkPool.withdraw(marketId, 100 ether, 0, user, user);
+        corkPool.withdraw(IPoolManager.WithdrawParams({poolId: marketId, collateralAssetOut: 100 ether, referenceAssetOut: 0, owner: user, receiver: user}));
         vm.stopPrank();
     }
 
@@ -1057,11 +1079,11 @@ contract CorkPoolTest is Helper {
         vm.stopPrank();
 
         uint256 amount = 50 ether;
-        (uint256 receivedRef, uint256 receivedCst, uint256 feePercentage, uint256 fee, uint256 swapRate) = corkPool.previewUnwindSwap(marketId, amount);
+        IUnwindSwap.UnwindSwapReturnParams memory previewReturnParams = corkPool.previewUnwindSwap(marketId, amount);
 
-        assertGt(receivedRef, 0, "Should calculate reference amount");
-        assertGt(receivedCst, 0, "Should calculate CST amount");
-        assertGt(swapRate, 0, "Should have swap rate");
+        assertGt(previewReturnParams.receivedReferenceAsset, 0, "Should calculate reference amount");
+        assertGt(previewReturnParams.receivedSwapToken, 0, "Should calculate CST amount");
+        assertGt(previewReturnParams.swapRate, 0, "Should have swap rate");
     }
 
     function test_previewExercise_ShouldReturnCorrectAmounts() external {
@@ -1173,6 +1195,56 @@ contract CorkPoolTest is Helper {
         assertGt(maxShares, 0, "Should return positive amount");
     }
 
+    function test_maxUnwindExerciseOther_ShouldReturnCorrectAmount() external {
+        vm.startPrank(DEFAULT_ADDRESS);
+
+        corkConfig.updateBaseRedemptionFeePercentage(marketId, 0);
+
+        // Setup pool liquidity first
+        vm.startPrank(user);
+        collateralAsset.approve(address(corkPool), 1000 ether);
+        referenceAsset.approve(address(corkPool), 1000 ether);
+        corkPool.deposit(marketId, 500 ether, currentCaller());
+        corkPool.swap(marketId, 100 ether, user);
+        vm.stopPrank();
+
+        uint256 maxReferenceAssets = corkPool.maxUnwindExerciseOther(marketId, user);
+        assertEq(maxReferenceAssets, 100 ether, "Should return positive amount");
+    }
+
+    function test_maxUnwindExerciseOther_ShouldReturnZero_WhenUnwindSwapPaused() external {
+        vm.startPrank(DEFAULT_ADDRESS);
+
+        corkConfig.pauseUnwindSwaps(marketId);
+
+        // Setup pool liquidity first
+        vm.startPrank(user);
+        collateralAsset.approve(address(corkPool), 1000 ether);
+        referenceAsset.approve(address(corkPool), 1000 ether);
+        corkPool.deposit(marketId, 500 ether, currentCaller());
+        corkPool.swap(marketId, 100 ether, user);
+        vm.stopPrank();
+
+        uint256 maxReferenceAssets = corkPool.maxUnwindExerciseOther(marketId, user);
+        assertEq(maxReferenceAssets, 0, "Should return 0 when unwind swap is paused");
+    }
+
+    function test_maxUnwindExerciseOther_ShouldReturnZero_WhenExpired() external {
+        // Setup pool liquidity first
+        vm.startPrank(user);
+        collateralAsset.approve(address(corkPool), 1000 ether);
+        referenceAsset.approve(address(corkPool), 1000 ether);
+        corkPool.deposit(marketId, 500 ether, currentCaller());
+        corkPool.swap(marketId, 100 ether, user);
+        vm.stopPrank();
+
+        // Warp to after expiry
+        vm.warp(block.timestamp + 2 days);
+
+        uint256 maxReferenceAssets = corkPool.maxUnwindExerciseOther(marketId, user);
+        assertEq(maxReferenceAssets, 0, "Should return 0 when expired");
+    }
+
     function test_maxUnwindDeposit_ShouldReturnUserBalance() external {
         vm.startPrank(user);
         collateralAsset.approve(address(corkPool), 1000 ether);
@@ -1202,7 +1274,30 @@ contract CorkPoolTest is Helper {
         vm.warp(block.timestamp + 2 days);
 
         uint256 maxAmount = corkPool.maxWithdraw(marketId, user);
-        assertGt(maxAmount, 0, "Should return positive amount when expired");
+        assertEq(maxAmount, 500 ether, "Should return positive amount when expired");
+    }
+
+    function test_maxWithdrawOther_ShouldReturnCorrectAmount_WhenExpired() external {
+        vm.startPrank(user);
+        collateralAsset.approve(address(corkPool), 1000 ether);
+        corkPool.deposit(marketId, 500 ether, currentCaller());
+        (address principal, address swap) = corkPool.shares(marketId);
+
+        IERC20(principal).approve(address(corkPool), 500 ether);
+        IERC20(swap).approve(address(corkPool), 500 ether);
+
+        vm.startPrank(DEFAULT_ADDRESS);
+        corkConfig.updateBaseRedemptionFeePercentage(marketId, 0);
+
+        vm.startPrank(user);
+        corkPool.swap(marketId, 500 ether, user);
+
+        vm.stopPrank();
+
+        vm.warp(block.timestamp + 2 days);
+
+        uint256 maxAmount = corkPool.maxWithdrawOther(marketId, user);
+        assertEq(maxAmount, 500 ether, "Should return positive amount when expired");
     }
 
     function test_maxWithdraw_ShouldReturnZero_WhenPaused() external {
@@ -1373,8 +1468,8 @@ contract CorkPoolTest is Helper {
         corkPool.setPausedState(marketId, IPoolManager.OperationType.DEPOSIT, true);
         vm.stopPrank();
 
-        (bool depositPaused,,,,) = corkPool.pausedStates(marketId);
-        assertTrue(depositPaused, "Deposit should be paused");
+        IPoolManager.PausedStates memory pausedStates = corkPool.pausedStates(marketId);
+        assertTrue(pausedStates.depositPaused, "Deposit should be paused");
     }
 
     function test_setPausedState_ShouldUnpauseDeposit() external {
@@ -1386,8 +1481,8 @@ contract CorkPoolTest is Helper {
         corkPool.setPausedState(marketId, IPoolManager.OperationType.DEPOSIT, false);
         vm.stopPrank();
 
-        (bool depositPaused,,,,) = corkPool.pausedStates(marketId);
-        assertFalse(depositPaused, "Deposit should be unpaused");
+        IPoolManager.PausedStates memory pausedStates = corkPool.pausedStates(marketId);
+        assertFalse(pausedStates.depositPaused, "Deposit should be unpaused");
     }
 
     function test_setPausedState_ShouldPauseUnwindSwap() external {
@@ -1516,20 +1611,32 @@ contract CorkPoolTest is Helper {
         corkPool.setPausedState(marketId, IPoolManager.OperationType.SWAP, true);
         vm.stopPrank();
 
-        (bool depositPaused, bool unwindSwapPaused, bool swapPaused, bool withdrawalPaused, bool unwindDepositPaused) = corkPool.pausedStates(marketId);
+        IPoolManager.PausedStates memory pausedStates = corkPool.pausedStates(marketId);
 
-        assertTrue(depositPaused, "Deposit should be paused");
-        assertFalse(unwindSwapPaused, "UnwindSwap should not be paused");
-        assertTrue(swapPaused, "Swap should be paused");
-        assertFalse(withdrawalPaused, "Withdrawal should not be paused");
-        assertFalse(unwindDepositPaused, "UnwindDeposit should not be paused");
+        assertTrue(pausedStates.depositPaused, "Deposit should be paused");
+        assertFalse(pausedStates.unwindSwapPaused, "UnwindSwap should not be paused");
+        assertTrue(pausedStates.swapPaused, "Swap should be paused");
+        assertFalse(pausedStates.withdrawalPaused, "Withdrawal should not be paused");
+        assertFalse(pausedStates.unwindDepositAndMintPaused, "UnwindDeposit should not be paused");
     }
 
     // ================================ View Function Tests ================================ //
 
     function test_getId_ShouldReturnCorrectId() external view {
         // Just verify both IDs are non-zero since exact comparison depends on timing
-        MarketId computedId = corkPool.getId(address(referenceAsset), address(collateralAsset), block.timestamp + 1 days, address(testOracle), 0.9 ether, 1.1 ether, 0.001 ether, 0.001 ether);
+        MarketId computedId = corkPool.getId(
+            Market({collateralAsset: address(collateralAsset), referenceAsset: address(referenceAsset), expiryTimestamp: block.timestamp + 1 days, rateOracle: address(testOracle), rateMin: 0.9 ether, rateMax: 1.1 ether, rateChangePerDayMax: 0.001 ether, rateChangeCapacityMax: 0.001 ether})
+        );
+        assertTrue(MarketId.unwrap(computedId) != bytes32(0), "Computed ID should not be zero");
+        assertTrue(MarketId.unwrap(marketId) != bytes32(0), "Market ID should not be zero");
+    }
+
+    function test_getId_ShouldReturnCorrectId_ForExpiredPools() external {
+        uint256 expiryInterval = block.timestamp + 1 days;
+        vm.warp(expiryInterval);
+        MarketId computedId = corkPool.getId(
+            Market({collateralAsset: address(collateralAsset), referenceAsset: address(referenceAsset), expiryTimestamp: expiryInterval - 1 days, rateOracle: address(testOracle), rateMin: 0.9 ether, rateMax: 1.1 ether, rateChangePerDayMax: 0.001 ether, rateChangeCapacityMax: 0.001 ether})
+        );
         assertTrue(MarketId.unwrap(computedId) != bytes32(0), "Computed ID should not be zero");
         assertTrue(MarketId.unwrap(marketId) != bytes32(0), "Market ID should not be zero");
     }
@@ -1583,8 +1690,7 @@ contract CorkPoolTest is Helper {
         corkPool.deposit(marketId, 500 ether, currentCaller());
         vm.stopPrank();
 
-        uint256 collateralLocked = corkPool.valueLocked(marketId, true);
-        uint256 referenceLocked = corkPool.valueLocked(marketId, false);
+        (uint256 collateralLocked, uint256 referenceLocked) = corkPool.valueLocked(marketId);
 
         assertGt(collateralLocked, 0, "Should have collateral locked");
         // referenceLocked might be 0 initially
@@ -1622,7 +1728,7 @@ contract CorkPoolTest is Helper {
         // 2. Exercise
         (address principalToken, address swapToken) = corkPool.shares(marketId);
         PoolShare(swapToken).approve(address(corkPool), type(uint256).max);
-        (uint256 exerciseAssets, uint256 exerciseOtherSpent, uint256 exerciseFee) = corkPool.exercise(marketId, 100 ether, 0, user, 0, type(uint256).max);
+        (uint256 exerciseAssets, uint256 exerciseOtherSpent, uint256 exerciseFee) = corkPool.exercise(IPoolManager.ExerciseParams({poolId: marketId, shares: 100 ether, compensation: 0, receiver: user, minAssetsOut: 0, maxOtherAssetSpent: type(uint256).max}));
 
         // 3. Fast forward to expiry
         vm.warp(block.timestamp + 2 days);
@@ -1674,7 +1780,7 @@ contract CorkPoolTest is Helper {
 
         // Try to exercise more than available
         vm.expectRevert();
-        corkPool.exercise(marketId, 1000 ether, 0, user, 0, type(uint256).max);
+        corkPool.exercise(IPoolManager.ExerciseParams({poolId: marketId, shares: 1000 ether, compensation: 0, receiver: user, minAssetsOut: 0, maxOtherAssetSpent: type(uint256).max}));
         vm.stopPrank();
     }
 

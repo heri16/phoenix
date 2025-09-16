@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: BUSL-1.1
 pragma solidity ^0.8.30;
 
-import {UD60x18, convert, div, mul, sub, ud, unwrap} from "@prb/math/src/UD60x18.sol";
 import {MathHelper} from "contracts/libraries/MathHelper.sol";
 import {Test} from "forge-std/Test.sol";
 import {Helper} from "test/forge/Helper.sol";
@@ -22,7 +21,7 @@ contract MathHelperTestContract {
     }
 
     function computeT(uint256 start, uint256 end, uint256 current) external pure returns (uint256) {
-        return unwrap(MathHelper.computeT(convert(start), convert(end), convert(current)));
+        return MathHelper.computeT(start, end, current);
     }
 
     // Expose internal functions for testing

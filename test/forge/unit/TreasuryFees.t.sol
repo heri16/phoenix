@@ -5,6 +5,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {CorkPool} from "contracts/core/CorkPool.sol";
 import {ERC20Burnable, PoolShare} from "contracts/core/assets/PoolShare.sol";
 import {IPoolManager} from "contracts/interfaces/IPoolManager.sol";
+import {IUnwindSwap} from "contracts/interfaces/IUnwindSwap.sol";
 import {Market, MarketId} from "contracts/libraries/Market.sol";
 import {TransferHelper} from "contracts/libraries/TransferHelper.sol";
 import {Helper} from "test/forge/Helper.sol";
@@ -25,7 +26,7 @@ contract TreasuryFeesTest is Helper {
         treasury = address(0x5678);
 
         vm.startPrank(DEFAULT_ADDRESS);
-        deployContracts(DEFAULT_ADDRESS, DEFAULT_ADDRESS);
+        deployContracts(DEFAULT_ADDRESS, DEFAULT_ADDRESS, DEFAULT_ADDRESS);
         (collateralAsset, referenceAsset, marketId) = createMarket(1 days);
 
         // Set treasury address
@@ -107,16 +108,16 @@ contract TreasuryFeesTest is Helper {
         uint256 unwindAmount = 10.52631579 ether;
 
         // Preview to get expected fee
-        (,, uint256 expectedFeePercentage, uint256 expectedFee,) = corkPool.previewUnwindSwap(marketId, unwindAmount);
+        IUnwindSwap.UnwindSwapReturnParams memory previewReturnParams = corkPool.previewUnwindSwap(marketId, unwindAmount);
 
         vm.startPrank(user);
-        (,, uint256 actualFeePercentage, uint256 actualFee,) = corkPool.unwindSwap(marketId, unwindAmount, user);
+        IUnwindSwap.UnwindSwapReturnParams memory unwindReturnParams = corkPool.unwindSwap(marketId, unwindAmount, user);
         vm.stopPrank();
 
         uint256 treasuryBalanceAfter = collateralAsset.balanceOf(treasury);
         uint256 treasuryFeesReceived = treasuryBalanceAfter - treasuryBalanceBefore;
 
-        assertEq(treasuryFeesReceived, actualFee, "Treasury should receive the exact fee amount");
+        assertEq(treasuryFeesReceived, unwindReturnParams.fee, "Treasury should receive the exact fee amount");
         assertApproxEqAbs(treasuryFeesReceived, 0.52631579 ether, 0.0001 ether, "Treasury should receive the exact fee amount");
     }
 
@@ -131,7 +132,7 @@ contract TreasuryFeesTest is Helper {
         uint256 treasuryBalanceBefore = collateralAsset.balanceOf(treasury);
         uint256 shares = 50 ether;
 
-        (uint256 assetIn, uint256 compensationOut) = corkPool.unwindExercise(marketId, shares, user, 0, type(uint256).max);
+        (uint256 assetIn, uint256 compensationOut, uint256 fee) = corkPool.unwindExercise(IPoolManager.UnwindExerciseParams({poolId: marketId, shares: shares, receiver: user, minCompensationOut: 0, maxAssetsIn: type(uint256).max}));
 
         uint256 treasuryBalanceAfter = collateralAsset.balanceOf(treasury);
         uint256 treasuryFeesReceived = treasuryBalanceAfter - treasuryBalanceBefore;
@@ -154,7 +155,7 @@ contract TreasuryFeesTest is Helper {
         uint256 exerciseShares = 100 ether;
 
         vm.startPrank(user);
-        (,, uint256 fee) = corkPool.exercise(marketId, exerciseShares, 0, user, 0, type(uint256).max);
+        (,, uint256 fee) = corkPool.exercise(IPoolManager.ExerciseParams({poolId: marketId, shares: exerciseShares, compensation: 0, receiver: user, minAssetsOut: 0, maxOtherAssetSpent: type(uint256).max}));
         vm.stopPrank();
 
         uint256 treasuryBalanceAfter = collateralAsset.balanceOf(treasury);
@@ -180,7 +181,7 @@ contract TreasuryFeesTest is Helper {
 
         vm.startPrank(user);
 
-        (uint256 shares, uint256 compensation) = corkPool.swap(marketId, assets, address(44));
+        (uint256 shares, uint256 compensation, uint256 fee) = corkPool.swap(marketId, assets, address(44));
         vm.stopPrank();
 
         assertApproxEqAbs(shares, 105.2631579 ether, 0.001 ether);
@@ -208,12 +209,12 @@ contract TreasuryFeesTest is Helper {
         uint256 unwindAmount = TransferHelper.normalizeDecimals(10.52631579 ether, TARGET_DECIMALS, raDecimals);
 
         // Preview to get expected fee
-        (,,, uint256 actualFee,) = corkPool.unwindSwap(marketId, unwindAmount, user);
+        IUnwindSwap.UnwindSwapReturnParams memory unwindReturnParams = corkPool.unwindSwap(marketId, unwindAmount, user);
 
         uint256 treasuryBalanceAfter = collateralAsset.balanceOf(treasury);
         uint256 treasuryFeesReceived = treasuryBalanceAfter - treasuryBalanceBefore;
 
-        assertEq(treasuryFeesReceived, actualFee, "Treasury should receive the exact fee amount");
+        assertEq(treasuryFeesReceived, unwindReturnParams.fee, "Treasury should receive the exact fee amount");
         uint256 expectedAmount = TransferHelper.normalizeDecimals(0.52631579 ether, TARGET_DECIMALS, raDecimals);
         uint256 acceptableDelta = TransferHelper.normalizeDecimals(0.0001 ether, TARGET_DECIMALS, raDecimals);
         assertApproxEqAbs(treasuryFeesReceived, expectedAmount, acceptableDelta, "Treasury should receive the exact fee amount");
@@ -232,7 +233,7 @@ contract TreasuryFeesTest is Helper {
         uint256 treasuryBalanceBefore = collateralAsset.balanceOf(treasury);
         uint256 shares = 50 ether;
 
-        corkPool.unwindExercise(marketId, shares, user, 0, type(uint256).max);
+        corkPool.unwindExercise(IPoolManager.UnwindExerciseParams({poolId: marketId, shares: shares, receiver: user, minCompensationOut: 0, maxAssetsIn: type(uint256).max}));
 
         uint256 treasuryBalanceAfter = collateralAsset.balanceOf(treasury);
         uint256 treasuryFeesReceived = treasuryBalanceAfter - treasuryBalanceBefore;
@@ -255,7 +256,7 @@ contract TreasuryFeesTest is Helper {
         uint256 treasuryBalanceBefore = collateralAsset.balanceOf(treasury);
         uint256 exerciseShares = 1 ether;
 
-        (,, uint256 fee) = corkPool.exercise(marketId, exerciseShares, 0, user, 0, type(uint256).max);
+        (,, uint256 fee) = corkPool.exercise(IPoolManager.ExerciseParams({poolId: marketId, shares: exerciseShares, compensation: 0, receiver: user, minAssetsOut: 0, maxOtherAssetSpent: type(uint256).max}));
 
         uint256 treasuryBalanceAfter = collateralAsset.balanceOf(treasury);
         uint256 treasuryFeesReceived = treasuryBalanceAfter - treasuryBalanceBefore;
@@ -270,16 +271,17 @@ contract TreasuryFeesTest is Helper {
 
         // Setup: deposit first
         vm.startPrank(user);
-        uint256 depositAmount = TransferHelper.normalizeDecimals(1000 ether, TARGET_DECIMALS, raDecimals);
-        corkPool.deposit(marketId, depositAmount, currentCaller());
+        {
+            uint256 depositAmount = TransferHelper.normalizeDecimals(1000 ether, TARGET_DECIMALS, raDecimals);
+            corkPool.deposit(marketId, depositAmount, currentCaller());
 
-        (address principalToken, address swapToken) = corkPool.shares(marketId);
-        PoolShare(swapToken).approve(address(corkPool), type(uint256).max);
+            (address principalToken, address swapToken) = corkPool.shares(marketId);
+            PoolShare(swapToken).approve(address(corkPool), type(uint256).max);
+        }
 
         uint256 treasuryBalanceBefore = collateralAsset.balanceOf(treasury);
-        uint256 assets = TransferHelper.normalizeDecimals(100 ether, TARGET_DECIMALS, raDecimals);
 
-        (uint256 shares, uint256 compensation) = corkPool.swap(marketId, assets, address(44));
+        (uint256 shares, uint256 compensation, uint256 fee) = corkPool.swap(marketId, TransferHelper.normalizeDecimals(100 ether, TARGET_DECIMALS, raDecimals), address(44));
 
         {
             uint256 expectedShares = 105.2631579 ether;

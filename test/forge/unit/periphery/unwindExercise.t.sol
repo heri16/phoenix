@@ -2,10 +2,11 @@
 pragma solidity ^0.8.30;
 
 import {PoolShare} from "contracts/core/assets/PoolShare.sol";
-import {IErrors} from "contracts/interfaces/IErrors.sol";
+import {ICorkPoolAdapter} from "contracts/interfaces/ICorkPoolAdapter.sol";
 import {MarketId} from "contracts/libraries/Market.sol";
 import {TransferHelper} from "contracts/libraries/TransferHelper.sol";
 import {CorkPoolAdapter} from "contracts/periphery/CorkPoolAdapter.sol";
+import {ErrorsLib} from "contracts/periphery/bundler3/libraries/ErrorsLib.sol";
 import "contracts/periphery/bundler3/libraries/ErrorsLib.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/interfaces/IERC20.sol";
 import {Helper} from "test/forge/Helper.sol";
@@ -24,7 +25,7 @@ contract CorkPoolAdapterUnwindExerciseTest is Helper {
 
     function setUp() public {
         vm.startPrank(DEFAULT_ADDRESS);
-        deployContracts(DEFAULT_ADDRESS, DEFAULT_ADDRESS);
+        deployContracts(DEFAULT_ADDRESS, DEFAULT_ADDRESS, DEFAULT_ADDRESS);
         deployPeriphery();
         vm.stopPrank();
     }
@@ -72,7 +73,7 @@ contract CorkPoolAdapterUnwindExerciseTest is Helper {
         uint256 maxAssetsIn = 200e18;
 
         // Hardcoded expected amounts based on 1% fee
-        uint256 expectedAssetIn = 101_010_100_616_465_037_754; // ~101.01e18 (100e18 + 1% fee)
+        uint256 expectedAssetIn = 101_010_100_616_465_037_775; // ~101.01e18 (100e18 + 1% fee)
         uint256 expectedCompensationOut = 100e18; // Should receive 100e18 compensation
 
         // Get preview of the unwind exercise for reference
@@ -88,7 +89,7 @@ contract CorkPoolAdapterUnwindExerciseTest is Helper {
         uint256 adapterCollateralBefore = collateralAsset.balanceOf(address(corkPoolAdapter));
 
         // Execute unwind exercise
-        corkPoolAdapter.safeUnwindExercise(defaultCurrencyId, shares, RECEIVER, minCompensationOut, maxAssetsIn, block.timestamp + 1 hours);
+        corkPoolAdapter.safeUnwindExercise(ICorkPoolAdapter.SafeUnwindExerciseParams({poolId: defaultCurrencyId, shares: shares, receiver: RECEIVER, minReferenceAssetsOut: minCompensationOut, maxCollateralAssetsIn: maxAssetsIn, deadline: block.timestamp + 1 hours}));
 
         // Verify results
         uint256 actualCollateralUsed = adapterCollateralBefore - collateralAsset.balanceOf(address(corkPoolAdapter));
@@ -127,7 +128,7 @@ contract CorkPoolAdapterUnwindExerciseTest is Helper {
         collateralAsset.transfer(address(corkPoolAdapter), maxAssetsIn);
 
         // Execute unwind exercise with exact limits
-        corkPoolAdapter.safeUnwindExercise(defaultCurrencyId, shares, RECEIVER, minCompensationOut, maxAssetsIn, block.timestamp + 1 hours);
+        corkPoolAdapter.safeUnwindExercise(ICorkPoolAdapter.SafeUnwindExerciseParams({poolId: defaultCurrencyId, shares: shares, receiver: RECEIVER, minReferenceAssetsOut: minCompensationOut, maxCollateralAssetsIn: maxAssetsIn, deadline: block.timestamp + 1 hours}));
 
         // Verify the transaction succeeded with exact limits
         uint256 receiverRefAssetAfter = referenceAsset.balanceOf(RECEIVER);
@@ -147,8 +148,8 @@ contract CorkPoolAdapterUnwindExerciseTest is Helper {
         uint256 minCompensationOut = 50e18;
         uint256 maxAssetsIn = 200e18;
 
-        vm.expectRevert(IErrors.DeadlineExceeded.selector);
-        corkPoolAdapter.safeUnwindExercise(defaultCurrencyId, shares, RECEIVER, minCompensationOut, maxAssetsIn, block.timestamp - 1);
+        vm.expectRevert(ErrorsLib.DeadlineExceeded.selector);
+        corkPoolAdapter.safeUnwindExercise(ICorkPoolAdapter.SafeUnwindExerciseParams({poolId: defaultCurrencyId, shares: shares, receiver: RECEIVER, minReferenceAssetsOut: minCompensationOut, maxCollateralAssetsIn: maxAssetsIn, deadline: block.timestamp - 1}));
 
         vm.stopPrank();
     }
@@ -161,8 +162,8 @@ contract CorkPoolAdapterUnwindExerciseTest is Helper {
         uint256 minCompensationOut = 50e18;
         uint256 maxAssetsIn = 200e18;
 
-        vm.expectRevert(IErrors.ZeroAddress.selector);
-        corkPoolAdapter.safeUnwindExercise(defaultCurrencyId, shares, address(0), minCompensationOut, maxAssetsIn, block.timestamp + 1 hours);
+        vm.expectRevert(ErrorsLib.ZeroAddress.selector);
+        corkPoolAdapter.safeUnwindExercise(ICorkPoolAdapter.SafeUnwindExerciseParams({poolId: defaultCurrencyId, shares: shares, receiver: address(0), minReferenceAssetsOut: minCompensationOut, maxCollateralAssetsIn: maxAssetsIn, deadline: block.timestamp + 1 hours}));
 
         vm.stopPrank();
     }
@@ -175,7 +176,7 @@ contract CorkPoolAdapterUnwindExerciseTest is Helper {
         uint256 maxAssetsIn = 200e18;
 
         vm.expectRevert(ErrorsLib.ZeroShares.selector);
-        corkPoolAdapter.safeUnwindExercise(defaultCurrencyId, 0, RECEIVER, minCompensationOut, maxAssetsIn, block.timestamp + 1 hours);
+        corkPoolAdapter.safeUnwindExercise(ICorkPoolAdapter.SafeUnwindExerciseParams({poolId: defaultCurrencyId, shares: 0, receiver: RECEIVER, minReferenceAssetsOut: minCompensationOut, maxCollateralAssetsIn: maxAssetsIn, deadline: block.timestamp + 1 hours}));
 
         vm.stopPrank();
     }
@@ -196,7 +197,7 @@ contract CorkPoolAdapterUnwindExerciseTest is Helper {
 
         // Expect InsufficientOutputAmount error from the underlying unwindExercise call
         vm.expectRevert();
-        corkPoolAdapter.safeUnwindExercise(defaultCurrencyId, shares, RECEIVER, minCompensationOut, maxAssetsIn, block.timestamp + 1 hours);
+        corkPoolAdapter.safeUnwindExercise(ICorkPoolAdapter.SafeUnwindExerciseParams({poolId: defaultCurrencyId, shares: shares, receiver: RECEIVER, minReferenceAssetsOut: minCompensationOut, maxCollateralAssetsIn: maxAssetsIn, deadline: block.timestamp + 1 hours}));
 
         vm.stopPrank();
     }
@@ -215,9 +216,9 @@ contract CorkPoolAdapterUnwindExerciseTest is Helper {
 
         vm.startPrank(DEFAULT_ADDRESS);
 
-        // Expect ExcessiveInput error from the underlying unwindExercise call
+        // Expect ExceedInput error from the underlying unwindExercise call
         vm.expectRevert();
-        corkPoolAdapter.safeUnwindExercise(defaultCurrencyId, shares, RECEIVER, minCompensationOut, maxAssetsIn, block.timestamp + 1 hours);
+        corkPoolAdapter.safeUnwindExercise(ICorkPoolAdapter.SafeUnwindExerciseParams({poolId: defaultCurrencyId, shares: shares, receiver: RECEIVER, minReferenceAssetsOut: minCompensationOut, maxCollateralAssetsIn: maxAssetsIn, deadline: block.timestamp + 1 hours}));
 
         vm.stopPrank();
     }
@@ -230,8 +231,8 @@ contract CorkPoolAdapterUnwindExerciseTest is Helper {
         uint256 maxAssetsIn = 200e18;
 
         vm.prank(address(0x999));
-        vm.expectRevert(IErrors.UnauthorizedSender.selector);
-        corkPoolAdapter.safeUnwindExercise(defaultCurrencyId, shares, RECEIVER, minCompensationOut, maxAssetsIn, block.timestamp + 1 hours);
+        vm.expectRevert(ErrorsLib.UnauthorizedSender.selector);
+        corkPoolAdapter.safeUnwindExercise(ICorkPoolAdapter.SafeUnwindExerciseParams({poolId: defaultCurrencyId, shares: shares, receiver: RECEIVER, minReferenceAssetsOut: minCompensationOut, maxCollateralAssetsIn: maxAssetsIn, deadline: block.timestamp + 1 hours}));
     }
 
     function test_safeUnwindExercise_revertsOnInsufficientCollateral() public {
@@ -246,7 +247,7 @@ contract CorkPoolAdapterUnwindExerciseTest is Helper {
         collateralAsset.transfer(address(corkPoolAdapter), 10e18);
 
         vm.expectRevert();
-        corkPoolAdapter.safeUnwindExercise(defaultCurrencyId, shares, RECEIVER, minCompensationOut, maxAssetsIn, block.timestamp + 1 hours);
+        corkPoolAdapter.safeUnwindExercise(ICorkPoolAdapter.SafeUnwindExerciseParams({poolId: defaultCurrencyId, shares: shares, receiver: RECEIVER, minReferenceAssetsOut: minCompensationOut, maxCollateralAssetsIn: maxAssetsIn, deadline: block.timestamp + 1 hours}));
 
         vm.stopPrank();
     }
@@ -268,10 +269,10 @@ contract CorkPoolAdapterUnwindExerciseTest is Helper {
         uint256 receiverSwapTokenBefore = swapToken.balanceOf(RECEIVER);
 
         // Execute first unwind exercise
-        corkPoolAdapter.safeUnwindExercise(defaultCurrencyId, shares1, RECEIVER, minCompensationOut, maxAssetsIn, block.timestamp + 1 hours);
+        corkPoolAdapter.safeUnwindExercise(ICorkPoolAdapter.SafeUnwindExerciseParams({poolId: defaultCurrencyId, shares: shares1, receiver: RECEIVER, minReferenceAssetsOut: minCompensationOut, maxCollateralAssetsIn: maxAssetsIn, deadline: block.timestamp + 1 hours}));
 
         // Execute second unwind exercise
-        corkPoolAdapter.safeUnwindExercise(defaultCurrencyId, shares2, RECEIVER, minCompensationOut, maxAssetsIn, block.timestamp + 1 hours);
+        corkPoolAdapter.safeUnwindExercise(ICorkPoolAdapter.SafeUnwindExerciseParams({poolId: defaultCurrencyId, shares: shares2, receiver: RECEIVER, minReferenceAssetsOut: minCompensationOut, maxCollateralAssetsIn: maxAssetsIn, deadline: block.timestamp + 1 hours}));
 
         // Verify total results
         uint256 receiverRefAssetAfter = referenceAsset.balanceOf(RECEIVER);
@@ -298,7 +299,7 @@ contract CorkPoolAdapterUnwindExerciseTest is Helper {
         collateralAsset.transfer(address(corkPoolAdapter), maxAssetsIn);
 
         // Execute unwind exercise with large amounts
-        corkPoolAdapter.safeUnwindExercise(defaultCurrencyId, shares, RECEIVER, minCompensationOut, maxAssetsIn, block.timestamp + 1 hours);
+        corkPoolAdapter.safeUnwindExercise(ICorkPoolAdapter.SafeUnwindExerciseParams({poolId: defaultCurrencyId, shares: shares, receiver: RECEIVER, minReferenceAssetsOut: minCompensationOut, maxCollateralAssetsIn: maxAssetsIn, deadline: block.timestamp + 1 hours}));
 
         // Verify the transaction succeeded
         uint256 receiverSwapTokenAfter = swapToken.balanceOf(RECEIVER);

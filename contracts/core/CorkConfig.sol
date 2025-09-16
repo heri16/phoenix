@@ -6,7 +6,7 @@ import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 import {CorkPool} from "contracts/core/CorkPool.sol";
 import {IConfig} from "contracts/interfaces/IConfig.sol";
 import {IPoolManager} from "contracts/interfaces/IPoolManager.sol";
-import {MarketId} from "contracts/libraries/Market.sol";
+import {Market, MarketId} from "contracts/libraries/Market.sol";
 
 /**
  * @title Config Contract
@@ -14,52 +14,30 @@ import {MarketId} from "contracts/libraries/Market.sol";
  * @notice Config contract for managing pairs and configurations of Cork protocol
  */
 contract CorkConfig is AccessControl, Pausable, IConfig {
-    bytes32 public constant MANAGER_ROLE = keccak256("MANAGER_ROLE");
-    bytes32 public constant RATE_UPDATERS_ROLE = keccak256("RATE_UPDATERS_ROLE");
-    bytes32 public constant MARKET_ADMIN_ROLE = keccak256("MARKET_ADMIN");
+    bytes32 public constant POOL_CREATOR_ROLE = keccak256("POOL_CREATOR_ROLE");
+    bytes32 public constant PAUSER_ROLE = keccak256("PAUSER_ROLE");
 
     CorkPool public corkPool;
     // Cork Protocol's treasury address. Other Protocol component should fetch this address directly from the config contract
     // instead of storing it themselves, since it'll be hard to update the treasury address in all the components if it changes vs updating it in the config contract once
     address public treasury;
 
-    modifier onlyManager() {
-        require(hasRole(MANAGER_ROLE, msg.sender) || hasRole(DEFAULT_ADMIN_ROLE, msg.sender), CallerNotManager());
-        _;
+    constructor(address admin, address pauser, address poolCreator) {
+        require(admin != address(0) && poolCreator != address(0), InvalidAddress());
+
+        _grantRole(DEFAULT_ADMIN_ROLE, admin);
+        _grantRole(PAUSER_ROLE, pauser);
+        _grantRole(POOL_CREATOR_ROLE, poolCreator);
     }
 
-    modifier onlyMarketAdmin() {
-        require(hasRole(MARKET_ADMIN_ROLE, msg.sender), CallerNotMarketAdmin());
-        _;
-    }
-
-    modifier onlyUpdaterOrManager() {
-        require(hasRole(RATE_UPDATERS_ROLE, msg.sender) || hasRole(MANAGER_ROLE, msg.sender), CallerNotManager());
-        _;
-    }
-
-    constructor(address adminAdd, address managerAdd) {
-        require(adminAdd != address(0) && managerAdd != address(0), InvalidAddress());
-
-        _setRoleAdmin(MANAGER_ROLE, DEFAULT_ADMIN_ROLE);
-        _setRoleAdmin(RATE_UPDATERS_ROLE, MANAGER_ROLE);
-        _setRoleAdmin(MARKET_ADMIN_ROLE, MANAGER_ROLE);
-
-        _grantRole(DEFAULT_ADMIN_ROLE, adminAdd);
-        _grantRole(MANAGER_ROLE, managerAdd);
-        _grantRole(MARKET_ADMIN_ROLE, managerAdd);
-    }
-
-    // This will be only used in case of emergency to change the manager role of the different roles if any of the manager is compromised
-    // Although DEFAULT_ADMIN_ROLE and MANAGER_ROLE will be multisig so chances of being compromised is very unlikely, but we still keep this function for in case of emergency
-    function setRoleAdmin(bytes32 role, bytes32 newAdminRole) external onlyRole(getRoleAdmin(role)) {
-        require(newAdminRole != getRoleAdmin(role), InvalidAdminRole());
-        _setRoleAdmin(role, newAdminRole);
-    }
-
-    function grantRole(bytes32 role, address account) public override onlyManager {
-        require(!hasRole(role, account), InvalidRole());
+    function grantRole(bytes32 role, address account) public override onlyRole(DEFAULT_ADMIN_ROLE) {
+        require(!hasRole(role, account), InvalidAddress());
         _grantRole(role, account);
+    }
+
+    function revokeRole(bytes32 role, address account) public override onlyRole(DEFAULT_ADMIN_ROLE) {
+        require(hasRole(role, account), InvalidAddress());
+        _revokeRole(role, account);
     }
 
     function transferAdmin(address newAdmin) external onlyRole(DEFAULT_ADMIN_ROLE) {
@@ -69,91 +47,91 @@ contract CorkConfig is AccessControl, Pausable, IConfig {
     }
 
     /// @inheritdoc IConfig
-    function setCorkPool(address _corkPool) external onlyManager {
+    function setCorkPool(address _corkPool) external onlyRole(DEFAULT_ADMIN_ROLE) {
         require(_corkPool != address(0), InvalidAddress());
         corkPool = CorkPool(_corkPool);
         emit CorkPoolSet(_corkPool);
     }
 
     /// @inheritdoc IConfig
-    function setTreasury(address _treasury) external onlyManager {
+    function setTreasury(address _treasury) external onlyRole(DEFAULT_ADMIN_ROLE) {
         require(_treasury != address(0), InvalidAddress());
         treasury = _treasury;
         emit TreasurySet(_treasury);
     }
 
     /// @inheritdoc IConfig
-    function createNewMarket(address referenceAsset, address collateralAsset, uint256 expiryTimestamp, address rateOracle, uint256 rateMin, uint256 rateMax, uint256 rateChangePerDayMax, uint256 rateChangeCapacityMax) external whenNotPaused onlyMarketAdmin {
-        corkPool.createNewMarket(referenceAsset, collateralAsset, expiryTimestamp, rateOracle, rateMin, rateMax, rateChangePerDayMax, rateChangeCapacityMax);
+    function createNewPool(Market calldata poolParams) external whenNotPaused onlyRole(POOL_CREATOR_ROLE) {
+        corkPool.createNewPool(poolParams);
     }
 
     /// @inheritdoc IConfig
-    function updateUnwindSwapFeeRate(MarketId id, uint256 newUnwindSwapFeePercentage) external onlyManager {
+    function updateUnwindSwapFeeRate(MarketId id, uint256 newUnwindSwapFeePercentage) external onlyRole(DEFAULT_ADMIN_ROLE) {
         corkPool.updateUnwindSwapFeeRate(id, newUnwindSwapFeePercentage);
     }
 
     /// @inheritdoc IConfig
-    function updateBaseRedemptionFeePercentage(MarketId id, uint256 newBaseRedemptionFeePercentage) external onlyManager {
+    function updateBaseRedemptionFeePercentage(MarketId id, uint256 newBaseRedemptionFeePercentage) external onlyRole(DEFAULT_ADMIN_ROLE) {
         corkPool.updateBaseRedemptionFeePercentage(id, newBaseRedemptionFeePercentage);
     }
 
     /// @inheritdoc IConfig
-    function pause() external onlyManager {
+    function pause() external onlyRole(PAUSER_ROLE) {
         _pause();
     }
 
     /// @inheritdoc IConfig
-    function unpause() external onlyManager {
+    function unpause() external onlyRole(DEFAULT_ADMIN_ROLE) {
         _unpause();
     }
 
     /// @inheritdoc IConfig
-    function pauseDeposits(MarketId id) external onlyManager {
+    function pauseDeposits(MarketId id) external onlyRole(PAUSER_ROLE) {
         corkPool.setPausedState(id, IPoolManager.OperationType.DEPOSIT, true);
     }
 
     /// @inheritdoc IConfig
-    function unpauseDeposits(MarketId id) external onlyManager {
+    function unpauseDeposits(MarketId id) external onlyRole(DEFAULT_ADMIN_ROLE) {
         corkPool.setPausedState(id, IPoolManager.OperationType.DEPOSIT, false);
     }
 
     /// @inheritdoc IConfig
-    function pauseUnwindSwaps(MarketId id) external onlyManager {
+    function pauseUnwindSwaps(MarketId id) external onlyRole(PAUSER_ROLE) {
         corkPool.setPausedState(id, IPoolManager.OperationType.UNWIND_SWAP, true);
     }
 
     /// @inheritdoc IConfig
-    function unpauseUnwindSwaps(MarketId id) external onlyManager {
+    function unpauseUnwindSwaps(MarketId id) external onlyRole(DEFAULT_ADMIN_ROLE) {
         corkPool.setPausedState(id, IPoolManager.OperationType.UNWIND_SWAP, false);
     }
 
     /// @inheritdoc IConfig
-    function pauseSwaps(MarketId id) external onlyManager {
+    function pauseSwaps(MarketId id) external onlyRole(PAUSER_ROLE) {
         corkPool.setPausedState(id, IPoolManager.OperationType.SWAP, true);
     }
 
     /// @inheritdoc IConfig
-    function unpauseSwaps(MarketId id) external onlyManager {
+    function unpauseSwaps(MarketId id) external onlyRole(DEFAULT_ADMIN_ROLE) {
         corkPool.setPausedState(id, IPoolManager.OperationType.SWAP, false);
     }
 
     /// @inheritdoc IConfig
-    function pauseWithdrawals(MarketId id) external onlyManager {
+    function pauseWithdrawals(MarketId id) external onlyRole(PAUSER_ROLE) {
         corkPool.setPausedState(id, IPoolManager.OperationType.WITHDRAWAL, true);
     }
 
     /// @inheritdoc IConfig
-    function unpauseWithdrawals(MarketId id) external onlyManager {
+    function unpauseWithdrawals(MarketId id) external onlyRole(DEFAULT_ADMIN_ROLE) {
         corkPool.setPausedState(id, IPoolManager.OperationType.WITHDRAWAL, false);
     }
 
     /// @inheritdoc IConfig
-    function pauseUnwindDepositAndMints(MarketId id) external onlyManager {
+    function pauseUnwindDepositAndMints(MarketId id) external onlyRole(PAUSER_ROLE) {
         corkPool.setPausedState(id, IPoolManager.OperationType.PREMATURE_WITHDRAWAL, true);
     }
 
     /// @inheritdoc IConfig
-    function unpauseUnwindDepositAndMints(MarketId id) external onlyManager {
+    function unpauseUnwindDepositAndMints(MarketId id) external onlyRole(DEFAULT_ADMIN_ROLE) {
         corkPool.setPausedState(id, IPoolManager.OperationType.PREMATURE_WITHDRAWAL, false);
     }
 }

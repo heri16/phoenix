@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 pragma solidity ^0.8.30;
 
-import {MarketId} from "contracts/libraries/Market.sol";
+import {Market, MarketId} from "contracts/libraries/Market.sol";
 
 /**
  * @title IConfig Interface
@@ -9,12 +9,6 @@ import {MarketId} from "contracts/libraries/Market.sol";
  * @notice Interface for Config contract
  */
 interface IConfig {
-    /// @notice thrown when caller is not manager/Admin of Cork Protocol
-    error CallerNotManager();
-
-    /// @notice thrown when caller is not market admin
-    error CallerNotMarketAdmin();
-
     /// @notice thrown when passed Invalid/Zero Address
     error InvalidAddress();
 
@@ -46,10 +40,9 @@ interface IConfig {
 
     /**
      * @dev Initialize cork pool
-     * @param referenceAsset Address of Reference Asset
-     * @param collateralAsset Address of Collateral Asset
+     * @param poolParams Parameters for the new pool
      */
-    function createNewMarket(address referenceAsset, address collateralAsset, uint256 expiryTimestamp, address rateOracle, uint256 rateMin, uint256 rateMax, uint256 rateChangePerDayMax, uint256 rateChangeCapacityMax) external;
+    function createNewPool(Market calldata poolParams) external;
 
     /**
      * @notice Updates fee rate for pool unwindSwap

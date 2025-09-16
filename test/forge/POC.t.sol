@@ -22,7 +22,7 @@ contract POCTest is Helper {
     function setUp() public {
         vm.startPrank(DEFAULT_ADDRESS);
 
-        deployContracts(DEFAULT_ADDRESS, DEFAULT_ADDRESS);
+        deployContracts(DEFAULT_ADDRESS, DEFAULT_ADDRESS, DEFAULT_ADDRESS);
 
         (collateralAsset, referenceAsset, currencyId) = createMarket(_expiry, redemptionFeePercentage);
         vm.deal(DEFAULT_ADDRESS, type(uint256).max);

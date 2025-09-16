@@ -5,8 +5,8 @@ import {ConstraintAdapter} from "./ConstraintAdapter.sol";
 import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {ContextUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ContextUpgradeable.sol";
-import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
+import {IERC20, SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {ModuleState} from "contracts/core/ModuleState.sol";
 import {PoolShare} from "contracts/core/assets/PoolShare.sol";
 import {IPoolManager} from "contracts/interfaces/IPoolManager.sol";
@@ -14,9 +14,10 @@ import {IPoolShare} from "contracts/interfaces/IPoolShare.sol";
 import {ISharesFactory} from "contracts/interfaces/ISharesFactory.sol";
 import {IUnwindSwap} from "contracts/interfaces/IUnwindSwap.sol";
 import {Initialize} from "contracts/interfaces/Initialize.sol";
-import {Market, MarketId, MarketLibrary} from "contracts/libraries/Market.sol";
+import {Guard} from "contracts/libraries/Guard.sol";
+import {Market, MarketId} from "contracts/libraries/Market.sol";
 import {PoolLibrary} from "contracts/libraries/PoolLib.sol";
-import {PoolState, State} from "contracts/libraries/State.sol";
+import {CorkPoolPoolArchive, PoolState, State} from "contracts/libraries/State.sol";
 import {TransferHelper} from "contracts/libraries/TransferHelper.sol";
 
 /**
@@ -26,7 +27,7 @@ import {TransferHelper} from "contracts/libraries/TransferHelper.sol";
  */
 contract CorkPool is IPoolManager, ModuleState, ContextUpgradeable, OwnableUpgradeable, UUPSUpgradeable {
     using PoolLibrary for State;
-    using MarketLibrary for Market;
+    using SafeERC20 for IERC20;
 
     constructor() {
         _disableInitializers();
@@ -45,9 +46,24 @@ contract CorkPool is IPoolManager, ModuleState, ContextUpgradeable, OwnableUpgra
     // solhint-disable-next-line no-empty-blocks
     function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}
 
+    function _unlockTo(State storage state, address to, uint256 amount) internal {
+        // If amount is greater than locked amount, revert
+        require(amount <= state.pool.balances.collateralAsset.locked, InvalidAmount());
+
+        // Decrease locked amount
+        state.pool.balances.collateralAsset.locked -= amount;
+
+        // Transfer asset to receiver
+        IERC20(state.info.collateralAsset).safeTransfer(to, amount);
+    }
+
     /// @inheritdoc Initialize
-    function getId(address referenceAsset, address collateralAsset, uint256 _expiry, address rateOracle, uint256 rateMin, uint256 rateMax, uint256 rateChangePerDayMax, uint256 rateChangeCapacityMax) external view returns (MarketId) {
-        return MarketLibrary.initialize(referenceAsset, collateralAsset, _expiry, rateOracle, rateMin, rateMax, rateChangePerDayMax, rateChangeCapacityMax).toId();
+    function getId(Market calldata market) external view returns (MarketId) {
+        require(market.referenceAsset != address(0) && market.collateralAsset != address(0), ZeroAddress());
+        require(market.referenceAsset != market.collateralAsset, InvalidAddress());
+        require(market.expiryTimestamp != 0, InvalidExpiry());
+        require(market.rateOracle != address(0), ZeroAddress());
+        return MarketId.wrap(keccak256(abi.encode(market)));
     }
 
     /// @inheritdoc Initialize
@@ -69,29 +85,32 @@ contract CorkPool is IPoolManager, ModuleState, ContextUpgradeable, OwnableUpgra
     }
 
     /// @inheritdoc Initialize
-    function createNewMarket(address referenceAsset, address collateralAsset, uint256 expiryTimestamp, address rateOracle, uint256 rateMin, uint256 rateMax, uint256 rateChangePerDayMax, uint256 rateChangeCapacityMax) external override nonReentrant {
+    function createNewPool(Market calldata poolParams) external override nonReentrant {
         onlyConfig();
 
-        require(expiryTimestamp > block.timestamp, InvalidExpiry());
-        Market memory poolParams = MarketLibrary.initialize(referenceAsset, collateralAsset, expiryTimestamp, rateOracle, rateMin, rateMax, rateChangePerDayMax, rateChangeCapacityMax);
-        MarketId poolId = poolParams.toId();
+        require(poolParams.expiryTimestamp > block.timestamp, InvalidExpiry());
+        require(poolParams.referenceAsset != address(0) && poolParams.collateralAsset != address(0), ZeroAddress());
+        require(poolParams.referenceAsset != poolParams.collateralAsset, InvalidAddress());
+        require(poolParams.rateOracle != address(0), ZeroAddress());
+
+        MarketId poolId = MarketId.wrap(keccak256(abi.encode(poolParams)));
 
         State storage state = data().states[poolId];
 
         require(!state.isInitialized(), AlreadyInitialized());
 
-        PoolLibrary.initialize(state, poolParams, data().CONSTRAINT_ADAPTER);
+        PoolLibrary.initialize(state, poolId, poolParams, data().CONSTRAINT_ADAPTER);
 
         uint256 _swapRate = ConstraintAdapter(data().CONSTRAINT_ADAPTER).adjustedRate(poolId);
 
-        (address principalToken, address swapToken) = ISharesFactory(data().SHARES_FACTORY).deployPoolShares(ISharesFactory.DeployParams({owner: address(this), poolParams: poolParams, swapRate: _swapRate}));
+        (address principalToken, address swapToken) = ISharesFactory(data().SHARES_FACTORY).deployPoolShares(ISharesFactory.DeployParams({owner: address(this), poolParams: poolParams, poolId: poolId}));
 
-        state.swapToken._address = swapToken;
-        state.swapToken.principalToken = principalToken;
-        state.referenceDecimals = IERC20Metadata(referenceAsset).decimals();
-        state.collateralDecimals = IERC20Metadata(collateralAsset).decimals();
+        state.shares.swap = swapToken;
+        state.shares.principal = principalToken;
+        state.referenceDecimals = IERC20Metadata(poolParams.referenceAsset).decimals();
+        state.collateralDecimals = IERC20Metadata(poolParams.collateralAsset).decimals();
 
-        emit MarketCreated(poolId, referenceAsset, collateralAsset, expiryTimestamp, rateOracle, principalToken, swapToken);
+        emit MarketCreated(poolId, poolParams.referenceAsset, poolParams.collateralAsset, poolParams.expiryTimestamp, poolParams.rateOracle, principalToken, swapToken);
     }
 
     /// @inheritdoc Initialize
@@ -105,13 +124,16 @@ contract CorkPool is IPoolManager, ModuleState, ContextUpgradeable, OwnableUpgra
 
     /// @inheritdoc Initialize
     function underlyingAsset(MarketId poolId) external view override returns (address collateralAsset, address referenceAsset) {
-        (collateralAsset, referenceAsset) = data().states[poolId].info.underlyingAsset();
+        State memory state = data().states[poolId];
+        referenceAsset = state.info.referenceAsset;
+        collateralAsset = state.info.collateralAsset;
     }
 
     /// @inheritdoc Initialize
     function shares(MarketId poolId) external view override returns (address principalToken, address swapToken) {
-        principalToken = data().states[poolId].swapToken.principalToken;
-        swapToken = data().states[poolId].swapToken._address;
+        State memory state = data().states[poolId];
+        principalToken = state.shares.principal;
+        swapToken = state.shares.swap;
     }
 
     /// @inheritdoc Initialize
@@ -134,19 +156,45 @@ contract CorkPool is IPoolManager, ModuleState, ContextUpgradeable, OwnableUpgra
     }
 
     /// @inheritdoc IUnwindSwap
-    function unwindSwap(MarketId poolId, uint256 amount, address receiver) external override nonReentrant returns (uint256 receivedReferenceAsset, uint256 receivedSwapToken, uint256 feePercentage, uint256 fee, uint256 _swapRate) {
+    function unwindSwap(MarketId poolId, uint256 amount, address receiver) external override nonReentrant returns (IUnwindSwap.UnwindSwapReturnParams memory returnParams) {
         onlyInitialized(poolId);
         corkPoolUnwindSwapAndExerciseNotPaused(poolId);
 
+        require(amount != 0, InvalidAmount());
+        Guard.safeBeforeExpired(data().states[poolId].shares);
+
         State storage state = data().states[poolId];
 
-        (receivedReferenceAsset, receivedSwapToken, feePercentage, fee, _swapRate) = state.unwindSwap(amount, receiver, _msgSender(), getTreasuryAddress(), data().CONSTRAINT_ADAPTER);
+        returnParams = state.previewUnwindSwap(poolId, amount, getConstraintAdapter());
 
-        emit PoolSwap(poolId, _msgSender(), receiver, amount, receivedReferenceAsset, fee, true);
+        // actually update the rate, since preview only get the latest rate without updating.
+        // the adjusted rate should be idempotent and is fine to call many times
+        state._getLatestApplicableRateAndUpdate(poolId, getConstraintAdapter());
+
+        // decrease Cork Pool balance
+        // we also include the fee here to separate the accumulated fee from the unwindSwap
+        state.pool.balances.referenceAssetBalance -= (returnParams.receivedReferenceAsset);
+        state.pool.balances.swapTokenBalance -= (returnParams.receivedSwapToken);
+        state.pool.balances.collateralAsset.locked += amount;
+
+        // transfer the fee(if any) to treasury, since the fee is used to provide liquidity
+        IERC20(state.info.collateralAsset).safeTransferFrom(_msgSender(), address(this), amount);
+
+        if (returnParams.fee != 0) _unlockTo(state, getTreasuryAddress(), returnParams.fee);
+
+        // transfer user attrubuted Swap Token + Reference Asset
+        // Reference Asset
+        IERC20(state.info.referenceAsset).safeTransfer(receiver, returnParams.receivedReferenceAsset);
+
+        // Swap Token
+        IERC20(state.shares.swap).safeTransfer(receiver, returnParams.receivedSwapToken);
+
+        emit PoolSwap(poolId, _msgSender(), receiver, amount, returnParams.receivedReferenceAsset, 0, 0, true);
+        emit PoolFee(poolId, _msgSender(), returnParams.fee, 0);
 
         // ERC4626-compatible event emitted by principal token
-        IPoolShare(state.swapToken.principalToken).emitDeposit(_msgSender(), receiver, amount, 0);
-        IPoolShare(state.swapToken.principalToken).emitWithdrawOther(_msgSender(), receiver, _msgSender(), address(state.info.referenceAsset), receivedReferenceAsset, receivedSwapToken);
+        IPoolShare(state.shares.principal).emitDeposit(_msgSender(), receiver, amount, 0);
+        IPoolShare(state.shares.principal).emitWithdrawOther(_msgSender(), receiver, _msgSender(), address(state.info.referenceAsset), returnParams.receivedReferenceAsset, 0);
     }
 
     /// @inheritdoc IUnwindSwap
@@ -156,7 +204,7 @@ contract CorkPool is IPoolManager, ModuleState, ContextUpgradeable, OwnableUpgra
 
     /// @inheritdoc IUnwindSwap
     function unwindSwapRate(MarketId poolId) external view returns (uint256 rate) {
-        rate = data().states[poolId].unwindSwapRate(data().CONSTRAINT_ADAPTER);
+        rate = data().states[poolId].unwindSwapRate(poolId, data().CONSTRAINT_ADAPTER);
     }
 
     /// @inheritdoc IPoolManager
@@ -164,34 +212,74 @@ contract CorkPool is IPoolManager, ModuleState, ContextUpgradeable, OwnableUpgra
         onlyInitialized(poolId);
         corkPoolDepositAndMintNotPaused(poolId);
 
+        require(amount != 0, ZeroDeposit());
+
+        Guard.safeBeforeExpired(data().states[poolId].shares);
+
         State storage state = data().states[poolId];
 
-        received = state.deposit(amount, receiver, _msgSender());
-        emit PoolModifyLiquidity(poolId, _msgSender(), receiver, amount, 0, false);
+        // we convert it 18 fixed decimals, since that's what the Swap Token uses
+        received = TransferHelper.tokenNativeDecimalsToFixed(amount, state.collateralDecimals);
 
+        state.pool.balances.collateralAsset.locked += amount;
+
+        IERC20(state.info.collateralAsset).safeTransferFrom(_msgSender(), address(this), amount);
+
+        PoolShare(state.shares.principal).mint(receiver, received);
+        PoolShare(state.shares.swap).mint(receiver, received);
+
+        emit PoolModifyLiquidity(poolId, _msgSender(), receiver, amount, 0, false);
         // ERC4626-compatible event emitted by principal token
-        IPoolShare(state.swapToken.principalToken).emitDeposit(_msgSender(), receiver, amount, received);
+        IPoolShare(state.shares.principal).emitDeposit(_msgSender(), receiver, amount, received);
     }
 
     /// @inheritdoc IPoolManager
-    function exercise(MarketId poolId, uint256 shares, uint256 compensation, address receiver, uint256 minAssetsOut, uint256 maxOtherAssetSpent) external override nonReentrant returns (uint256 assets, uint256 otherAssetSpent, uint256 fee) {
-        onlyInitialized(poolId);
-        corkPoolSwapNotPaused(poolId);
+    function exercise(ExerciseParams memory params) external override nonReentrant returns (uint256 assets, uint256 otherAssetSpent, uint256 fee) {
+        onlyInitialized(params.poolId);
+        corkPoolSwapNotPaused(params.poolId);
 
-        State storage state = data().states[poolId];
+        // Either shares or compensation MUST be 0
+        if ((params.shares == 0 && params.compensation == 0) || (params.shares != 0 && params.compensation != 0)) revert InvalidParams();
 
-        (assets, otherAssetSpent, fee) = state.exercise(shares, compensation, receiver, minAssetsOut, maxOtherAssetSpent, _msgSender(), _msgSender(), getTreasuryAddress(), data().CONSTRAINT_ADAPTER);
+        State storage state = data().states[params.poolId];
 
-        emit PoolSwap(poolId, _msgSender(), _msgSender(), assets, compensation, 0, false);
+        Guard.safeBeforeExpired(state.shares);
+
+        uint256 swapTokenProvided;
+        uint256 referenceAssetProvided;
+        (assets, otherAssetSpent, fee, swapTokenProvided, referenceAssetProvided) = state.previewExercise(params.poolId, params.shares, params.compensation, getConstraintAdapter());
+
+        params.compensation = params.compensation > 0 ? params.compensation : otherAssetSpent;
+        params.shares = params.shares > 0 ? params.shares : otherAssetSpent;
+
+        // Update swap rate since preview doesn't update the rate
+        state._getLatestApplicableRateAndUpdate(params.poolId, getConstraintAdapter());
+
+        // Validate slippage protection
+        require(assets >= params.minAssetsOut, SlippageExceeded());
+        require(otherAssetSpent <= params.maxOtherAssetSpent, SlippageExceeded());
+        require(assets <= state.pool.balances.collateralAsset.locked, InsufficientLiquidity(state.pool.balances.collateralAsset.locked, assets));
+
+        state.pool.balances.swapTokenBalance += params.shares;
+        state.pool.balances.referenceAssetBalance += params.compensation;
+
+        PoolShare(state.shares.swap).transferFrom(_msgSender(), _msgSender(), address(this), swapTokenProvided);
+        IERC20(state.info.referenceAsset).safeTransferFrom(_msgSender(), address(this), referenceAssetProvided);
+
+        _unlockTo(state, params.receiver, assets);
+        if (fee != 0) _unlockTo(state, getTreasuryAddress(), fee);
+
+        emit PoolSwap(params.poolId, _msgSender(), _msgSender(), assets, params.compensation, 0, 0, false);
+        emit PoolFee(params.poolId, _msgSender(), fee, 0);
 
         // ERC4626-compatible event emitted by principal token
-        IPoolShare(state.swapToken.principalToken).emitWithdraw(_msgSender(), receiver, _msgSender(), assets, 0);
-        IPoolShare(state.swapToken.principalToken).emitDepositOther(_msgSender(), receiver, address(state.info.referenceAsset), compensation, shares);
+        IPoolShare(state.shares.principal).emitWithdraw(_msgSender(), params.receiver, _msgSender(), assets, 0);
+        IPoolShare(state.shares.principal).emitDepositOther(_msgSender(), params.receiver, address(state.info.referenceAsset), params.compensation, 0);
     }
 
     /// @inheritdoc IPoolManager
     function swapRate(MarketId poolId) external view override returns (uint256 rate) {
-        rate = data().states[poolId].swapRate(data().CONSTRAINT_ADAPTER);
+        rate = data().states[poolId].swapRate(poolId, data().CONSTRAINT_ADAPTER);
     }
 
     /// @inheritdoc IPoolManager
@@ -201,17 +289,50 @@ contract CorkPool is IPoolManager, ModuleState, ContextUpgradeable, OwnableUpgra
 
         State storage state = data().states[poolId];
 
-        (accruedReferenceAsset, accruedCollateralAsset) = state.redeem(amount, owner, receiver, _msgSender());
+        require(amount != 0, InvalidAmount());
+        Guard.safeAfterExpired(state.shares);
+
+        // Calculate minimum shares to avoid rounding issues for low decimal tokens
+        uint256 minimumShares = calculateMinimumSharesForAssets(state.collateralDecimals, state.referenceDecimals);
+
+        // Ensure the input amount is at least the minimum required
+        if (amount < minimumShares) revert InsufficientSharesAmount(minimumShares, amount);
+
+        if (!state.pool.liquiditySeparated) {
+            state.pool.liquiditySeparated = true;
+
+            state.pool.poolArchive.collateralAssetAccrued = state.pool.balances.collateralAsset.locked;
+            state.pool.poolArchive.referenceAssetAccrued = state.pool.balances.referenceAssetBalance;
+
+            // reset current balances
+            state.pool.balances.collateralAsset.locked = 0;
+            state.pool.balances.referenceAssetBalance = 0;
+        }
+
+        CorkPoolPoolArchive storage archive = state.pool.poolArchive;
+
+        (accruedReferenceAsset, accruedCollateralAsset) = state._calcSwapAmount(amount, IERC20(state.shares.principal).totalSupply(), archive.collateralAssetAccrued, archive.referenceAssetAccrued);
+
+        state.shares.withdrawn += amount;
+        state.pool.poolArchive.referenceAssetAccrued -= accruedReferenceAsset;
+        state.pool.poolArchive.collateralAssetAccrued -= accruedCollateralAsset;
+
+        PoolShare(state.shares.principal).burnFrom(_msgSender(), owner, amount);
+        IERC20(state.info.referenceAsset).safeTransfer(receiver, accruedReferenceAsset);
+        IERC20(state.info.collateralAsset).safeTransfer(receiver, accruedCollateralAsset);
 
         emit PoolModifyLiquidity(poolId, _msgSender(), owner, accruedCollateralAsset, accruedReferenceAsset, true);
         // ERC4626-compatible event emitted by principal token
-        IPoolShare(state.swapToken.principalToken).emitWithdraw(_msgSender(), receiver, owner, accruedCollateralAsset, amount);
-        IPoolShare(state.swapToken.principalToken).emitWithdrawOther(_msgSender(), receiver, owner, address(state.info.referenceAsset), accruedReferenceAsset, amount);
+        IPoolShare(state.shares.principal).emitWithdraw(_msgSender(), receiver, owner, accruedCollateralAsset, amount);
+        IPoolShare(state.shares.principal).emitWithdrawOther(_msgSender(), receiver, owner, address(state.info.referenceAsset), accruedReferenceAsset, amount);
     }
 
     /// @inheritdoc IPoolManager
-    function valueLocked(MarketId poolId, bool collateralAsset) external view override returns (uint256 lockedAmount) {
-        lockedAmount = data().states[poolId].valueLocked(collateralAsset);
+    function valueLocked(MarketId poolId) external view override returns (uint256 collateralAssets, uint256 referenceAssets) {
+        State storage state = data().states[poolId];
+
+        collateralAssets = state.pool.balances.collateralAsset.locked;
+        referenceAssets = state.pool.balances.referenceAssetBalance;
     }
 
     /// @inheritdoc IPoolManager
@@ -219,45 +340,117 @@ contract CorkPool is IPoolManager, ModuleState, ContextUpgradeable, OwnableUpgra
         onlyInitialized(poolId);
         corkPoolUnwindDepositAndMintNotPaused(poolId);
 
+        require(cptAndCstSharesIn != 0, InvalidAmount());
+
+        Guard.safeBeforeExpired(data().states[poolId].shares);
+
+        // Calculate the minimum shares required to get at least 1 unit of collateral asset
+        uint256 minimumShares = calculateMinimumShares(data().states[poolId].collateralDecimals);
+
+        // Ensure the input amount is at least the minimum required
+        if (cptAndCstSharesIn < minimumShares && cptAndCstSharesIn > 0) revert InsufficientSharesAmount(minimumShares, cptAndCstSharesIn);
+
         State storage state = data().states[poolId];
 
-        collateralAsset = state.unwindMint(owner, receiver, cptAndCstSharesIn);
+        collateralAsset = TransferHelper.fixedToTokenNativeDecimals(cptAndCstSharesIn, state.collateralDecimals);
+
+        _unlockTo(state, receiver, collateralAsset);
+
+        PoolShare(state.shares.principal).burnFrom(_msgSender(), owner, cptAndCstSharesIn);
+        PoolShare(state.shares.swap).burnFrom(_msgSender(), owner, cptAndCstSharesIn);
 
         // Emit both events as required by the spec - both CPT and CST are burned equally
         emit PoolModifyLiquidity(poolId, _msgSender(), owner, collateralAsset, 0, true);
         // ERC4626-compatible event emitted by principal token
-        IPoolShare(state.swapToken.principalToken).emitWithdraw(_msgSender(), receiver, owner, collateralAsset, cptAndCstSharesIn);
+        IPoolShare(state.shares.principal).emitWithdraw(_msgSender(), receiver, owner, collateralAsset, cptAndCstSharesIn);
     }
 
     /// @inheritdoc IPoolManager
-    function swap(MarketId poolId, uint256 assets, address receiver) external override nonReentrant returns (uint256 shares, uint256 compensation) {
+    function swap(MarketId poolId, uint256 assets, address receiver) external override nonReentrant returns (uint256 shares, uint256 compensation, uint256 fee) {
         onlyInitialized(poolId);
         corkPoolSwapNotPaused(poolId);
 
+        require(assets != 0, InvalidAmount());
+
         State storage state = data().states[poolId];
 
-        (shares, compensation) = state.swap(assets, receiver, _msgSender(), _msgSender(), getTreasuryAddress(), data().CONSTRAINT_ADAPTER);
+        Guard.safeBeforeExpired(state.shares);
 
-        emit PoolSwap(poolId, _msgSender(), _msgSender(), shares, compensation, 0, false);
+        (shares, compensation, fee) = state.previewSwap(poolId, assets, getConstraintAdapter());
+
+        require(assets <= state.pool.balances.collateralAsset.locked, InsufficientLiquidity(state.pool.balances.collateralAsset.locked, assets));
+
+        // Update exchange rate because preview doesn't actually update the rate
+        state._getLatestApplicableRateAndUpdate(poolId, getConstraintAdapter());
+
+        state.pool.balances.swapTokenBalance += shares;
+        state.pool.balances.referenceAssetBalance += compensation;
+
+        PoolShare(state.shares.swap).transferFrom(_msgSender(), _msgSender(), address(this), shares);
+        IERC20(state.info.referenceAsset).safeTransferFrom(_msgSender(), address(this), compensation);
+
+        _unlockTo(state, receiver, assets);
+        if (fee != 0) _unlockTo(state, getTreasuryAddress(), fee);
+
+        emit PoolSwap(poolId, _msgSender(), _msgSender(), assets, compensation, 0, 0, false);
+        emit PoolFee(poolId, _msgSender(), fee, 0);
 
         // ERC4626-compatible event emitted by principal token
-        IPoolShare(state.swapToken.principalToken).emitWithdraw(_msgSender(), receiver, _msgSender(), assets, 0);
-        IPoolShare(state.swapToken.principalToken).emitDepositOther(_msgSender(), receiver, address(state.info.referenceAsset), compensation, shares);
+        IPoolShare(state.shares.principal).emitWithdraw(_msgSender(), receiver, _msgSender(), assets, 0);
+        IPoolShare(state.shares.principal).emitDepositOther(_msgSender(), receiver, address(state.info.referenceAsset), compensation, 0);
     }
 
     /// @inheritdoc IPoolManager
-    function withdraw(MarketId poolId, uint256 collateralAssetOut, uint256 referenceAssetOut, address owner, address receiver) external override nonReentrant returns (uint256 sharesIn, uint256 actualCollateralAssetOut, uint256 actualReferenceAssetOut) {
-        onlyInitialized(poolId);
-        corkPoolWithdrawalNotPaused(poolId);
+    function withdraw(WithdrawParams calldata params) external override nonReentrant returns (uint256 sharesIn, uint256 actualCollateralAssetOut, uint256 actualReferenceAssetOut) {
+        onlyInitialized(params.poolId);
+        corkPoolWithdrawalNotPaused(params.poolId);
 
-        State storage state = data().states[poolId];
+        // Either collateralAssetOut or referenceAssetOut must be zero, but not both
+        if ((params.collateralAssetOut == 0 && params.referenceAssetOut == 0) || (params.collateralAssetOut != 0 && params.referenceAssetOut != 0)) revert InvalidParams();
 
-        (sharesIn, actualCollateralAssetOut, actualReferenceAssetOut) = state.withdraw(collateralAssetOut, referenceAssetOut, owner, receiver, _msgSender());
+        State storage state = data().states[params.poolId];
 
-        emit PoolModifyLiquidity(poolId, _msgSender(), owner, actualCollateralAssetOut, actualReferenceAssetOut, true);
+        Guard.safeAfterExpired(state.shares);
+
+        if (!state.pool.liquiditySeparated) {
+            state.pool.liquiditySeparated = true;
+
+            state.pool.poolArchive.collateralAssetAccrued = state.pool.balances.collateralAsset.locked;
+            state.pool.poolArchive.referenceAssetAccrued = state.pool.balances.referenceAssetBalance;
+
+            // reset current balances
+            state.pool.balances.collateralAsset.locked = 0;
+            state.pool.balances.referenceAssetBalance = 0;
+        }
+
+        // Calculate required shares
+        CorkPoolPoolArchive storage archive = state.pool.poolArchive;
+
+        require(params.collateralAssetOut <= archive.collateralAssetAccrued, InsufficientLiquidity(archive.collateralAssetAccrued, params.collateralAssetOut));
+        require(params.referenceAssetOut <= archive.referenceAssetAccrued, InsufficientLiquidity(archive.referenceAssetAccrued, params.referenceAssetOut));
+
+        sharesIn = state._calcWithdrawAmount(params.collateralAssetOut, params.referenceAssetOut, IERC20(state.shares.principal).totalSupply(), archive.collateralAssetAccrued, archive.referenceAssetAccrued);
+
+        // Calculate minimum shares to avoid rounding issues for low decimal tokens
+        uint256 minimumShares = calculateMinimumSharesForAssets(state.collateralDecimals, state.referenceDecimals);
+
+        // Ensure the input amount is at least the minimum required
+        if (sharesIn < minimumShares) revert InsufficientSharesAmount(minimumShares, sharesIn);
+
+        (actualReferenceAssetOut, actualCollateralAssetOut) = state._calcSwapAmount(sharesIn, IERC20(state.shares.principal).totalSupply(), archive.collateralAssetAccrued, archive.referenceAssetAccrued);
+
+        state.shares.withdrawn += sharesIn;
+        state.pool.poolArchive.referenceAssetAccrued -= actualReferenceAssetOut;
+        state.pool.poolArchive.collateralAssetAccrued -= actualCollateralAssetOut;
+
+        PoolShare(state.shares.principal).burnFrom(_msgSender(), params.owner, sharesIn);
+        IERC20(state.info.referenceAsset).safeTransfer(params.receiver, actualReferenceAssetOut);
+        IERC20(state.info.collateralAsset).safeTransfer(params.receiver, actualCollateralAssetOut);
+
+        emit PoolModifyLiquidity(params.poolId, _msgSender(), params.owner, actualCollateralAssetOut, actualReferenceAssetOut, true);
         // ERC4626-compatible event emitted by principal token
-        IPoolShare(state.swapToken.principalToken).emitWithdraw(_msgSender(), receiver, owner, actualCollateralAssetOut, sharesIn);
-        IPoolShare(state.swapToken.principalToken).emitWithdrawOther(_msgSender(), receiver, owner, address(state.info.referenceAsset), actualReferenceAssetOut, sharesIn);
+        IPoolShare(state.shares.principal).emitWithdraw(_msgSender(), params.receiver, params.owner, actualCollateralAssetOut, sharesIn);
+        IPoolShare(state.shares.principal).emitWithdrawOther(_msgSender(), params.receiver, params.owner, address(state.info.referenceAsset), actualReferenceAssetOut, sharesIn);
     }
 
     /// @inheritdoc IPoolManager
@@ -265,18 +458,26 @@ contract CorkPool is IPoolManager, ModuleState, ContextUpgradeable, OwnableUpgra
         onlyInitialized(poolId);
         corkPoolDepositAndMintNotPaused(poolId);
 
+        require(swapAndPricipalTokenAmountOut != 0, ZeroDeposit());
+
+        Guard.safeBeforeExpired(data().states[poolId].shares);
+
         State storage state = data().states[poolId];
 
         // since the the cpt and cst is 18 decimals, that meanns the out amount is also 18 decimals
         collateralAmountIn = TransferHelper.fixedToTokenNativeDecimals(swapAndPricipalTokenAmountOut, state.collateralDecimals);
-        uint256 actualOut = state.deposit(collateralAmountIn, receiver, _msgSender());
 
-        require(actualOut == swapAndPricipalTokenAmountOut, InvalidMintAmount(swapAndPricipalTokenAmountOut, actualOut));
+        state.pool.balances.collateralAsset.locked += collateralAmountIn;
+
+        IERC20(state.info.collateralAsset).safeTransferFrom(_msgSender(), address(this), collateralAmountIn);
+
+        PoolShare(state.shares.principal).mint(receiver, swapAndPricipalTokenAmountOut);
+        PoolShare(state.shares.swap).mint(receiver, swapAndPricipalTokenAmountOut);
 
         emit PoolModifyLiquidity(poolId, _msgSender(), receiver, collateralAmountIn, 0, false);
 
         // ERC4626-compatible event emitted by principal token
-        IPoolShare(state.swapToken.principalToken).emitDeposit(_msgSender(), receiver, collateralAmountIn, actualOut);
+        IPoolShare(state.shares.principal).emitDeposit(_msgSender(), receiver, collateralAmountIn, swapAndPricipalTokenAmountOut);
     }
 
     /// @inheritdoc IPoolManager
@@ -288,29 +489,73 @@ contract CorkPool is IPoolManager, ModuleState, ContextUpgradeable, OwnableUpgra
 
         cptAndCstSharesIn = TransferHelper.tokenNativeDecimalsToFixed(collateralAmtOut, state.collateralDecimals);
 
-        uint256 actualCollateralAssetOut = state.unwindMint(owner, receiver, cptAndCstSharesIn);
-        require(collateralAmtOut == actualCollateralAssetOut, InvalidUnwindDepositAmount(collateralAmtOut, actualCollateralAssetOut));
+        require(cptAndCstSharesIn != 0, InvalidAmount());
+
+        Guard.safeBeforeExpired(state.shares);
+
+        // Calculate the minimum shares required to get at least 1 unit of collateral asset
+        uint256 minimumShares = calculateMinimumShares(state.collateralDecimals);
+
+        // Ensure the input amount is at least the minimum required
+        if (cptAndCstSharesIn < minimumShares && cptAndCstSharesIn > 0) revert InsufficientSharesAmount(minimumShares, cptAndCstSharesIn);
+
+        uint256 collateralAsset = TransferHelper.fixedToTokenNativeDecimals(cptAndCstSharesIn, state.collateralDecimals);
+
+        _unlockTo(state, receiver, collateralAsset);
+
+        PoolShare(state.shares.principal).burnFrom(_msgSender(), owner, cptAndCstSharesIn);
+        PoolShare(state.shares.swap).burnFrom(_msgSender(), owner, cptAndCstSharesIn);
 
         // Emit both events as required by the spec - both CPT and CST are burned equally
-        emit PoolModifyLiquidity(poolId, _msgSender(), owner, actualCollateralAssetOut, 0, true);
+        emit PoolModifyLiquidity(poolId, _msgSender(), owner, collateralAsset, 0, true);
         // ERC4626-compatible event emitted by principal token
-        IPoolShare(state.swapToken.principalToken).emitWithdraw(_msgSender(), receiver, owner, actualCollateralAssetOut, cptAndCstSharesIn);
+        IPoolShare(state.shares.principal).emitWithdraw(_msgSender(), receiver, owner, collateralAsset, cptAndCstSharesIn);
     }
 
     /// @inheritdoc IPoolManager
-    function unwindExercise(MarketId poolId, uint256 shares, address receiver, uint256 minCompensationOut, uint256 maxAssetIn) external override nonReentrant returns (uint256 assetIn, uint256 compensationOut) {
-        onlyInitialized(poolId);
-        corkPoolUnwindSwapAndExerciseNotPaused(poolId);
+    function unwindExercise(UnwindExerciseParams calldata params) external override nonReentrant returns (uint256 assetIn, uint256 compensationOut, uint256 fee) {
+        onlyInitialized(params.poolId);
+        corkPoolUnwindSwapAndExerciseNotPaused(params.poolId);
+        Guard.safeBeforeExpired(data().states[params.poolId].shares);
 
-        State storage state = data().states[poolId];
+        require(params.shares != 0, InvalidAmount());
 
-        (assetIn, compensationOut) = state.unwindExercise(shares, receiver, minCompensationOut, maxAssetIn, _msgSender(), getTreasuryAddress(), data().CONSTRAINT_ADAPTER);
+        State storage state = data().states[params.poolId];
 
-        emit PoolSwap(poolId, _msgSender(), receiver, assetIn, compensationOut, 0, true);
+        (assetIn, compensationOut, fee) = state.previewUnwindExercise(params.poolId, params.shares, getConstraintAdapter());
+
+        // slippage
+        require(compensationOut >= params.minCompensationOut, InsufficientOutputAmount(params.minCompensationOut, compensationOut));
+        require(assetIn <= params.maxAssetsIn, ExceedInput(assetIn, params.maxAssetsIn));
+
+        // Check sufficient liquidity
+        require(compensationOut <= state.pool.balances.referenceAssetBalance, InsufficientLiquidity(state.pool.balances.referenceAssetBalance, compensationOut));
+        require(params.shares <= state.pool.balances.swapTokenBalance, InsufficientLiquidity(state.pool.balances.swapTokenBalance, params.shares));
+
+        // Decrease pool balances (opposite of unwindSwap)
+        state.pool.balances.referenceAssetBalance -= compensationOut;
+        state.pool.balances.swapTokenBalance -= params.shares;
+        state.pool.balances.collateralAsset.locked += assetIn;
+
+        // actually update the rate, since preview only get the latest rate without updating.
+        // the adjusted rate should be idempotent and is fine to call many times
+        state._getLatestApplicableRateAndUpdate(params.poolId, getConstraintAdapter());
+
+        IERC20(state.info.collateralAsset).safeTransferFrom(_msgSender(), address(this), assetIn);
+
+        // Transfer collateral asset fees to treasury
+        if (fee != 0) _unlockTo(state, getTreasuryAddress(), fee);
+
+        // Transfer unlocked tokens to receiver
+        IERC20(state.info.referenceAsset).safeTransfer(params.receiver, compensationOut);
+        IERC20(state.shares.swap).safeTransfer(params.receiver, params.shares);
+
+        emit PoolSwap(params.poolId, _msgSender(), params.receiver, assetIn, compensationOut, 0, 0, true);
+        emit PoolFee(params.poolId, _msgSender(), fee, 0);
 
         // ERC4626-compatible event emitted by principal token
-        IPoolShare(state.swapToken.principalToken).emitDeposit(_msgSender(), receiver, assetIn, 0);
-        IPoolShare(state.swapToken.principalToken).emitWithdrawOther(_msgSender(), receiver, _msgSender(), address(state.info.referenceAsset), compensationOut, assetIn);
+        IPoolShare(state.shares.principal).emitDeposit(_msgSender(), params.receiver, assetIn, 0);
+        IPoolShare(state.shares.principal).emitWithdrawOther(_msgSender(), params.receiver, _msgSender(), address(state.info.referenceAsset), compensationOut, 0);
     }
 
     /// @inheritdoc IPoolManager
@@ -319,9 +564,13 @@ contract CorkPool is IPoolManager, ModuleState, ContextUpgradeable, OwnableUpgra
     }
 
     /// @inheritdoc IPoolManager
-    function pausedStates(MarketId poolId) external view returns (bool depositPaused, bool unwindSwapPaused, bool swapPaused, bool withdrawalPaused, bool unwindDepositAndMintPaused) {
+    function pausedStates(MarketId poolId) external view returns (IPoolManager.PausedStates memory pausedStates) {
         PoolState memory poolState = data().states[poolId].pool;
-        return (poolState.isDepositPaused, poolState.isUnwindSwapPaused, poolState.isSwapPaused, poolState.isWithdrawalPaused, poolState.isReturnPaused);
+        pausedStates.depositPaused = poolState.isDepositPaused;
+        pausedStates.unwindSwapPaused = poolState.isUnwindSwapPaused;
+        pausedStates.swapPaused = poolState.isSwapPaused;
+        pausedStates.withdrawalPaused = poolState.isWithdrawalPaused;
+        pausedStates.unwindDepositAndMintPaused = poolState.isReturnPaused;
     }
 
     /// @inheritdoc IPoolManager
@@ -378,7 +627,7 @@ contract CorkPool is IPoolManager, ModuleState, ContextUpgradeable, OwnableUpgra
     /// @inheritdoc IPoolManager
     function previewSwap(MarketId poolId, uint256 assets) external view returns (uint256 sharesOut, uint256 compensation) {
         onlyInitialized(poolId);
-        (sharesOut, compensation,) = data().states[poolId].previewSwap(assets, data().CONSTRAINT_ADAPTER);
+        (sharesOut, compensation,) = data().states[poolId].previewSwap(poolId, assets, data().CONSTRAINT_ADAPTER);
     }
 
     /// @inheritdoc IPoolManager
@@ -402,9 +651,9 @@ contract CorkPool is IPoolManager, ModuleState, ContextUpgradeable, OwnableUpgra
     }
 
     /// @inheritdoc IPoolManager
-    function previewUnwindSwap(MarketId poolId, uint256 amount) external view returns (uint256 receivedRef, uint256 receivedCst, uint256 feePercentage, uint256 fee, uint256 _swapRate) {
+    function previewUnwindSwap(MarketId poolId, uint256 amount) external view returns (IUnwindSwap.UnwindSwapReturnParams memory returnParams) {
         onlyInitialized(poolId);
-        (receivedRef, receivedCst, feePercentage, fee, _swapRate,) = data().states[poolId].previewUnwindSwap(amount, data().CONSTRAINT_ADAPTER);
+        returnParams = data().states[poolId].previewUnwindSwap(poolId, amount, data().CONSTRAINT_ADAPTER);
     }
 
     /// @inheritdoc IPoolManager
@@ -420,8 +669,7 @@ contract CorkPool is IPoolManager, ModuleState, ContextUpgradeable, OwnableUpgra
         onlyInitialized(poolId);
 
         // Calculate minimum shares to avoid rounding issues
-        uint256 minimumShares = 0;
-        if (data().states[poolId].collateralDecimals < 18) minimumShares = 10 ** (18 - data().states[poolId].collateralDecimals);
+        uint256 minimumShares = calculateMinimumShares(data().states[poolId].collateralDecimals);
 
         // Check if amount is less than minimum shares
         if (cptAndCstAmountIn < minimumShares && cptAndCstAmountIn > 0) return 0; // Return 0 for preview to indicate it's below minimum
@@ -433,13 +681,13 @@ contract CorkPool is IPoolManager, ModuleState, ContextUpgradeable, OwnableUpgra
     /// @inheritdoc IPoolManager
     function previewUnwindExercise(MarketId poolId, uint256 shares) external view override returns (uint256 assetIn, uint256 compensationOut) {
         onlyInitialized(poolId);
-        (assetIn, compensationOut,) = data().states[poolId].previewUnwindExercise(shares, getConstraintAdapter());
+        (assetIn, compensationOut,) = data().states[poolId].previewUnwindExercise(poolId, shares, getConstraintAdapter());
     }
 
     /// @inheritdoc IPoolManager
     function previewExercise(MarketId poolId, uint256 shares, uint256 compensation) external view override returns (uint256 assets, uint256 otherAssetSpent, uint256 fee) {
         onlyInitialized(poolId);
-        (assets, otherAssetSpent, fee) = data().states[poolId].previewExercise(shares, compensation, getConstraintAdapter());
+        (assets, otherAssetSpent, fee,,) = data().states[poolId].previewExercise(poolId, shares, compensation, getConstraintAdapter());
     }
 
     /**
@@ -450,7 +698,7 @@ contract CorkPool is IPoolManager, ModuleState, ContextUpgradeable, OwnableUpgra
         onlyInitialized(poolId);
 
         // If Minting is paused or the market is expired, return 0
-        if (data().states[poolId].pool.isDepositPaused || PoolShare(data().states[poolId].swapToken.principalToken).isExpired()) return 0;
+        if (data().states[poolId].pool.isDepositPaused || PoolShare(data().states[poolId].shares.principal).isExpired()) return 0;
 
         amount = type(uint256).max;
     }
@@ -460,7 +708,7 @@ contract CorkPool is IPoolManager, ModuleState, ContextUpgradeable, OwnableUpgra
         onlyInitialized(poolId);
 
         // If Deposit is paused or the market is expired, return 0
-        if (data().states[poolId].pool.isDepositPaused || PoolShare(data().states[poolId].swapToken.principalToken).isExpired()) return 0;
+        if (data().states[poolId].pool.isDepositPaused || PoolShare(data().states[poolId].shares.principal).isExpired()) return 0;
 
         amount = type(uint256).max;
     }
@@ -471,10 +719,10 @@ contract CorkPool is IPoolManager, ModuleState, ContextUpgradeable, OwnableUpgra
         State storage state = data().states[poolId];
 
         // If Unwind Deposit is paused or the market is expired, return 0
-        if (state.pool.isReturnPaused || PoolShare(state.swapToken.principalToken).isExpired()) return 0;
+        if (state.pool.isReturnPaused || PoolShare(state.shares.principal).isExpired()) return 0;
 
-        uint256 ownerSwapTokenBalance = IERC20(state.swapToken.principalToken).balanceOf(owner);
-        uint256 ownerPrincipalTokenBalance = IERC20(state.swapToken._address).balanceOf(owner);
+        uint256 ownerSwapTokenBalance = IERC20(state.shares.principal).balanceOf(owner);
+        uint256 ownerPrincipalTokenBalance = IERC20(state.shares.swap).balanceOf(owner);
 
         // since you need an equal amount of  swap token and principal token to unwind, we use whatever the smallest owner have
         collateralAssetAmountOut = ownerSwapTokenBalance < ownerPrincipalTokenBalance ? ownerSwapTokenBalance : ownerPrincipalTokenBalance;
@@ -489,10 +737,10 @@ contract CorkPool is IPoolManager, ModuleState, ContextUpgradeable, OwnableUpgra
         State storage state = data().states[poolId];
 
         // If Unwind Mint is paused or the market is expired, return 0
-        if (state.pool.isReturnPaused || PoolShare(state.swapToken.principalToken).isExpired()) return 0;
+        if (state.pool.isReturnPaused || PoolShare(state.shares.principal).isExpired()) return 0;
 
-        uint256 ownerSwapTokenBalance = IERC20(state.swapToken.principalToken).balanceOf(owner);
-        uint256 ownerPrincipalTokenBalance = IERC20(state.swapToken._address).balanceOf(owner);
+        uint256 ownerSwapTokenBalance = IERC20(state.shares.principal).balanceOf(owner);
+        uint256 ownerPrincipalTokenBalance = IERC20(state.shares.swap).balanceOf(owner);
 
         // since you need an equal amount of  swap token and principal token to unwind, we use whateever the smallest owner have
         cptAndCstSharesIn = ownerSwapTokenBalance < ownerPrincipalTokenBalance ? ownerSwapTokenBalance : ownerPrincipalTokenBalance;
@@ -501,33 +749,33 @@ contract CorkPool is IPoolManager, ModuleState, ContextUpgradeable, OwnableUpgra
     /// @inheritdoc IPoolManager
     function maxWithdraw(MarketId poolId, address owner) external view override returns (uint256 assets) {
         onlyInitialized(poolId);
+        (, assets) = _calculateMaxWithdraw(poolId, owner);
+    }
 
+    /// @inheritdoc IPoolManager
+    function maxWithdrawOther(MarketId poolId, address owner) external view override returns (uint256 referenceAssets) {
+        onlyInitialized(poolId);
+        (referenceAssets,) = _calculateMaxWithdraw(poolId, owner);
+    }
+
+    function _calculateMaxWithdraw(MarketId poolId, address owner) private view returns (uint256 references, uint256 assets) {
         State storage state = data().states[poolId];
 
         // If withdrawals are paused or the market is not expired yet, return 0
-        if (state.pool.isWithdrawalPaused || !PoolShare(state.swapToken.principalToken).isExpired()) return 0;
+        if (state.pool.isWithdrawalPaused || !PoolShare(state.shares.principal).isExpired()) return (0, 0);
 
         // Get owner's CPT balance (shares)
-        uint256 ownerShares = IERC20(state.swapToken.principalToken).balanceOf(owner);
+        uint256 ownerShares = IERC20(state.shares.principal).balanceOf(owner);
 
-        // If owner has no shares, return 0
-        if (ownerShares == 0) return 0;
+        if (ownerShares == 0) return (0, 0);
 
-        // Get available collateral in the pool
+        // Get available collateral and reference in the pool
         uint256 poolCollateralBalance = state.valueLocked(true);
-
-        if (poolCollateralBalance == 0) return 0;
+        uint256 poolReferenceBalance = state.valueLocked(false);
 
         // Return the minimum of owner's shares and available collateral
         // This ensures we don't return more than what can actually be withdrawn
-
-        // we need to normalize the pool collateral balance when comparing otherwise it'll be skewed from the decimals.
-        if (ownerShares < TransferHelper.tokenNativeDecimalsToFixed(poolCollateralBalance, state.collateralDecimals)) {
-            (, uint256 maxCollateralOut) = state.previewRedeem(ownerShares);
-            return maxCollateralOut;
-        } else {
-            return poolCollateralBalance;
-        }
+        (references, assets) = state.previewRedeem(ownerShares);
     }
 
     /// @inheritdoc IPoolManager
@@ -537,9 +785,20 @@ contract CorkPool is IPoolManager, ModuleState, ContextUpgradeable, OwnableUpgra
         State storage state = data().states[poolId];
 
         // If Exercise is paused or the market is expired, return 0
-        if (state.pool.isSwapPaused || PoolShare(state.swapToken.principalToken).isExpired()) return 0;
+        if (state.pool.isSwapPaused || PoolShare(state.shares.principal).isExpired()) return 0;
 
         return state.maxExercise(owner);
+    }
+
+    function maxExerciseOther(MarketId poolId, address owner) external view override returns (uint256 maxReferenceAssets) {
+        onlyInitialized(poolId);
+
+        State storage state = data().states[poolId];
+
+        // If Exercise is paused or the market is expired, return 0
+        if (state.pool.isSwapPaused || PoolShare(state.shares.principal).isExpired()) return 0;
+
+        return state.maxExerciseOther(poolId, owner, getConstraintAdapter());
     }
 
     /// @inheritdoc IPoolManager
@@ -548,9 +807,20 @@ contract CorkPool is IPoolManager, ModuleState, ContextUpgradeable, OwnableUpgra
         State storage state = data().states[poolId];
 
         // If Unwind Exercise is paused or the market is expired, return 0
-        if (state.pool.isUnwindSwapPaused || PoolShare(state.swapToken.principalToken).isExpired()) return 0;
+        if (state.pool.isUnwindSwapPaused || PoolShare(state.shares.principal).isExpired()) return 0;
 
-        maxShares = state.maxUnwindExercise(receiver, getConstraintAdapter());
+        maxShares = state.maxUnwindExercise(poolId, getConstraintAdapter());
+    }
+
+    /// @inheritdoc IPoolManager
+    function maxUnwindExerciseOther(MarketId poolId, address receiver) external view override returns (uint256 maxReferenceAssets) {
+        onlyInitialized(poolId);
+        State storage state = data().states[poolId];
+
+        // If Unwind Exercise is paused or the market is expired, return 0
+        if (state.pool.isUnwindSwapPaused || PoolShare(state.shares.principal).isExpired()) return 0;
+
+        maxReferenceAssets = state.maxUnwindExerciseOther(poolId, getConstraintAdapter());
     }
 
     /// @inheritdoc IPoolManager
@@ -560,8 +830,8 @@ contract CorkPool is IPoolManager, ModuleState, ContextUpgradeable, OwnableUpgra
         State storage state = data().states[poolId];
 
         // If Redeem is paused, or the market is not expired yet, return 0
-        if (state.pool.isWithdrawalPaused || !PoolShare(state.swapToken.principalToken).isExpired()) return 0;
-        maxShares = IERC20(state.swapToken.principalToken).balanceOf(owner);
+        if (state.pool.isWithdrawalPaused || !PoolShare(state.shares.principal).isExpired()) return 0;
+        maxShares = IERC20(state.shares.principal).balanceOf(owner);
     }
 
     /// @inheritdoc IPoolManager
@@ -571,9 +841,9 @@ contract CorkPool is IPoolManager, ModuleState, ContextUpgradeable, OwnableUpgra
         State storage state = data().states[poolId];
 
         // If Swap is paused or the market is expired, return 0
-        if (state.pool.isSwapPaused || PoolShare(state.swapToken.principalToken).isExpired()) return 0;
+        if (state.pool.isSwapPaused || PoolShare(state.shares.principal).isExpired()) return 0;
 
-        assets = state.maxSwap(owner, getConstraintAdapter());
+        assets = state.maxSwap(poolId, owner, getConstraintAdapter());
     }
 
     /// @inheritdoc IUnwindSwap
@@ -583,8 +853,35 @@ contract CorkPool is IPoolManager, ModuleState, ContextUpgradeable, OwnableUpgra
         State storage state = data().states[poolId];
 
         // If Unwind Swap is paused or the market is expired, return 0
-        if (state.pool.isUnwindSwapPaused || PoolShare(state.swapToken.principalToken).isExpired()) return 0;
+        if (state.pool.isUnwindSwapPaused || PoolShare(state.shares.principal).isExpired()) return 0;
 
-        amount = state.maxUnwindSwap(receiver, getConstraintAdapter());
+        amount = state.maxUnwindSwap(poolId, getConstraintAdapter());
+    }
+
+    ///=================================================================///
+    ///================== Internal Utility Functions ===================///
+    ///=================================================================///
+
+    /**
+     * @notice Calculates minimum shares required to avoid rounding to zero
+     * @dev Returns 10^(18-decimals) for tokens with <18 decimals, 0 otherwise
+     * @param decimals The number of decimals for the token
+     * @return minimumShares The minimum shares required
+     */
+    function calculateMinimumShares(uint8 decimals) internal pure returns (uint256 minimumShares) {
+        // If collateral has fewer decimals than 18, calculate minimum shares amount to avoid rounding to 0
+        return decimals < 18 ? 10 ** (18 - decimals) : 0;
+    }
+
+    /**
+     * @notice Calculates minimum shares based on the lowest decimal count between two assets
+     * @param collateralDecimals Decimals of collateral asset
+     * @param referenceDecimals Decimals of reference asset
+     * @return minimumShares Minimum shares required
+     */
+    function calculateMinimumSharesForAssets(uint8 collateralDecimals, uint8 referenceDecimals) internal pure returns (uint256 minimumShares) {
+        // Use the asset with the lowest decimals to calculate minimum shares
+        uint8 lowestDecimals = collateralDecimals < referenceDecimals ? collateralDecimals : referenceDecimals;
+        return calculateMinimumShares(lowestDecimals);
     }
 }

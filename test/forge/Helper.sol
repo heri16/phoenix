@@ -6,7 +6,7 @@ import {ConstraintAdapter} from "contracts/core/ConstraintAdapter.sol";
 import {CorkConfig} from "contracts/core/CorkConfig.sol";
 import {SharesFactory} from "contracts/core/assets/SharesFactory.sol";
 import {IRateOracle} from "contracts/interfaces/IRateOracle.sol";
-import {Market, MarketId, MarketLibrary} from "contracts/libraries/Market.sol";
+import {Market, MarketId} from "contracts/libraries/Market.sol";
 import {CorkPoolAdapter} from "contracts/periphery/CorkPoolAdapter.sol";
 import {MockBundler3} from "test/forge/utils/MockBundler3.sol";
 import {CorkPoolMock} from "test/mocks/CorkPoolMock.sol";
@@ -16,8 +16,6 @@ import {ERC20WithPermitMock} from "test/mocks/ERC20WithPermitMock.sol";
 import {RateOracleMock} from "test/mocks/RateOracleMock.sol";
 
 abstract contract Helper is SigUtils {
-    using MarketLibrary for Market;
-
     CorkPoolMock internal corkPool;
     SharesFactory internal sharesFactory;
     CorkConfig internal corkConfig;
@@ -134,20 +132,29 @@ abstract contract Helper is SigUtils {
         sharesFactory.setCorkPool(address(corkPool));
     }
 
-    function _createNewMarket(Market memory market, uint256 baseRedemptionFee, uint256 unwindSwapFeePercentage) internal {
+    function _createNewPool(Market memory market, uint256 baseRedemptionFee, uint256 unwindSwapFeePercentage) internal {
         address rateOracle = address(testOracle);
 
         testOracle.setRate(defaultCurrencyId, defaultOracleRate());
-        corkConfig.createNewMarket(market.referenceAsset, market.collateralAsset, market.expiryTimestamp, rateOracle, market.rateMin, market.rateMax, market.rateChangePerDayMax, market.rateChangeCapacityMax);
+        corkConfig.createNewPool(market);
         corkConfig.updateBaseRedemptionFeePercentage(defaultCurrencyId, baseRedemptionFee);
         corkConfig.updateUnwindSwapFeeRate(defaultCurrencyId, unwindSwapFeePercentage);
     }
 
-    function createNewMarketPair(uint256 expiryInSeconds) internal returns (ERC20Mock collateralAsset, ERC20Mock referenceAsset, MarketId poolId) {
+    function createNewPoolPair(uint256 expiryInSeconds) internal returns (ERC20Mock collateralAsset, ERC20Mock referenceAsset, MarketId poolId) {
         collateralAsset = new DummyWETH();
         referenceAsset = new DummyWETH();
-        Market memory _poolId = MarketLibrary.initialize(address(referenceAsset), address(collateralAsset), expiryInSeconds, address(testOracle), defaultRateMin(), defaultRateMax(), defaultRateChangePerDayMax(), defaultRateChangeCapacityMax());
-        poolId = MarketLibrary.toId(_poolId);
+        Market memory marketObject = Market({
+            collateralAsset: address(collateralAsset),
+            referenceAsset: address(referenceAsset),
+            expiryTimestamp: expiryInSeconds,
+            rateMin: defaultRateMin(),
+            rateMax: defaultRateMax(),
+            rateChangePerDayMax: defaultRateChangePerDayMax(),
+            rateChangeCapacityMax: defaultRateChangeCapacityMax(),
+            rateOracle: address(testOracle)
+        });
+        poolId = MarketId.wrap(keccak256(abi.encode(marketObject)));
     }
 
     function initializeAndIssueNewSwapTokenWithRaAsPermit(uint256 expiryTimestamp) internal returns (ERC20WithPermitMock collateralAsset, ERC20WithPermitMock referenceAsset, MarketId poolId) {
@@ -155,12 +162,21 @@ abstract contract Helper is SigUtils {
         referenceAsset = new ERC20WithPermitMock("Reference Asset", "REF");
 
         address rateOracle = address(testOracle);
-        Market memory marketParams = MarketLibrary.initialize(address(referenceAsset), address(collateralAsset), expiryTimestamp, rateOracle, defaultRateMin(), defaultRateMax(), defaultRateChangePerDayMax(), defaultRateChangeCapacityMax());
-        poolId = marketParams.toId();
+        Market memory marketParams = Market({
+            collateralAsset: address(collateralAsset),
+            referenceAsset: address(referenceAsset),
+            expiryTimestamp: expiryTimestamp,
+            rateMin: defaultRateMin(),
+            rateMax: defaultRateMax(),
+            rateChangePerDayMax: defaultRateChangePerDayMax(),
+            rateChangeCapacityMax: defaultRateChangeCapacityMax(),
+            rateOracle: address(testOracle)
+        });
+        poolId = MarketId.wrap(keccak256(abi.encode(marketParams)));
 
         defaultCurrencyId = poolId;
 
-        _createNewMarket(marketParams, DEFAULT_BASE_REDEMPTION_FEE, DEFAULT_REVERSE_SWAP_FEE);
+        _createNewPool(marketParams, DEFAULT_BASE_REDEMPTION_FEE, DEFAULT_REVERSE_SWAP_FEE);
     }
 
     function createMarket(uint256 expiryInSeconds) internal returns (ERC20Mock collateralAsset, ERC20Mock referenceAsset, MarketId poolId) {
@@ -184,18 +200,25 @@ abstract contract Helper is SigUtils {
             referenceAsset = new DummyERC20("Reference Asset", "REF", paDecimals);
         }
 
-        address rateOracle = address(testOracle);
-
-        Market memory marketParams = MarketLibrary.initialize(address(referenceAsset), address(collateralAsset), expiryTimestamp, rateOracle, defaultRateMin(), defaultRateMax(), defaultRateChangePerDayMax(), defaultRateChangeCapacityMax());
-        poolId = marketParams.toId();
+        Market memory marketParams = Market({
+            collateralAsset: address(collateralAsset),
+            referenceAsset: address(referenceAsset),
+            expiryTimestamp: expiryTimestamp,
+            rateMin: defaultRateMin(),
+            rateMax: defaultRateMax(),
+            rateChangePerDayMax: defaultRateChangePerDayMax(),
+            rateChangeCapacityMax: defaultRateChangeCapacityMax(),
+            rateOracle: address(testOracle)
+        });
+        poolId = MarketId.wrap(keccak256(abi.encode(marketParams)));
 
         defaultCurrencyId = poolId;
 
-        _createNewMarket(marketParams, baseRedemptionFee, unwindSwapFeePercentage);
+        _createNewPool(marketParams, baseRedemptionFee, unwindSwapFeePercentage);
     }
 
-    function deployConfig(address admin, address manager) internal {
-        corkConfig = new CorkConfig(admin, manager);
+    function deployConfig(address admin, address pauser, address poolDeployer) internal {
+        corkConfig = new CorkConfig(admin, pauser, poolDeployer);
     }
 
     function setupConfig() internal {
@@ -212,8 +235,8 @@ abstract contract Helper is SigUtils {
         corkPoolAdapter = new CorkPoolAdapter(BUNDLER3_ADDRESS, W_NATIVE_ADDRESS, address(corkPool));
     }
 
-    function deployContracts(address admin, address manager) internal {
-        deployConfig(admin, manager);
+    function deployContracts(address admin, address pauser, address poolDeployer) internal {
+        deployConfig(admin, pauser, poolDeployer);
         deploySharesFactory();
 
         corkPool = new CorkPoolMock();

@@ -2,37 +2,26 @@
 pragma solidity ^0.8.30;
 
 import {PoolShare} from "contracts/core/assets/PoolShare.sol";
-
 import {IErrors} from "contracts/interfaces/IErrors.sol";
+import {IPoolShare} from "contracts/interfaces/IPoolShare.sol";
 
 import {Guard} from "contracts/libraries/Guard.sol";
-import {SwapToken, SwapTokenLibrary} from "contracts/libraries/SwapToken.sol";
+
+import {MarketId} from "contracts/libraries/Market.sol";
+import {Shares} from "contracts/libraries/State.sol";
 import {Test} from "forge-std/Test.sol";
 import {Helper} from "test/forge/Helper.sol";
 
 // Helper contract to expose Guard library functions for testing
 contract GuardHelper {
-    using Guard for SwapToken;
+    using Guard for Shares;
 
-    SwapToken public swapToken;
+    Shares public swapToken;
 
-    function setSwapToken(address _address, address principalToken) external {
-        swapToken._address = _address;
-        swapToken.principalToken = principalToken;
+    function setSwapToken(address swap, address principal) external {
+        swapToken.swap = swap;
+        swapToken.principal = principal;
         swapToken.withdrawn = 0;
-    }
-
-    // Exposed Guard functions
-    function onlyNotExpired() external view {
-        Guard._onlyNotExpired(swapToken);
-    }
-
-    function onlyExpired() external view {
-        Guard._onlyExpired(swapToken);
-    }
-
-    function onlyInitialized() external view {
-        Guard._onlyInitialized(swapToken);
     }
 
     function safeBeforeExpired() external view {
@@ -52,127 +41,38 @@ contract GuardTest is Helper {
     address internal user1;
     address internal user2;
 
+    IPoolShare.ConstructorParams constructorParams;
+
     function setUp() external {
         user1 = makeAddr("user1");
         user2 = makeAddr("user2");
 
         vm.startPrank(DEFAULT_ADDRESS);
 
+        constructorParams.poolId = MarketId.wrap(bytes32(""));
+        constructorParams.expiry = block.timestamp + 1 days;
+        constructorParams.pairName = "Swap Token";
+        constructorParams.symbol = "SWT";
+        constructorParams.poolManager = address(1);
+
         // Create mock assets for testing
-        mockAsset = new PoolShare("Swap Token", "SWT", user1, block.timestamp + 1 days, 1 ether);
-        mockPrincipalToken = new PoolShare("Principal Token", "PT", user1, block.timestamp + 1 days, 1 ether);
+
+        mockAsset = new PoolShare(constructorParams);
+        mockPrincipalToken = new PoolShare(constructorParams);
 
         // Deploy guard helper
         guardHelper = new GuardHelper();
 
-        // Initialize with valid SwapToken
+        // Initialize with valid Shares
         guardHelper.setSwapToken(address(mockAsset), address(mockPrincipalToken));
 
         vm.stopPrank();
     }
 
-    // ------------------------------- _onlyNotExpired Tests ----------------------------------- //
-
-    function test_onlyNotExpired_ShouldPass_WhenNotExpired() external {
-        // PoolShare should not be expired at setup
-        assertFalse(mockAsset.isExpired(), "PoolShare should not be expired");
-
-        // Should not revert
-        guardHelper.onlyNotExpired();
-    }
-
-    function test_onlyNotExpired_ShouldRevert_WhenExpired() external {
-        // Warp time to make asset expired
-        vm.warp(block.timestamp + 2 days);
-
-        assertTrue(mockAsset.isExpired(), "PoolShare should be expired");
-
-        // Should revert with Expired error
-        vm.expectRevert(IErrors.Expired.selector);
-        guardHelper.onlyNotExpired();
-    }
-
-    function test_onlyNotExpired_ShouldRevert_WhenExactlyAtExpiry() external {
-        // Warp to exact expiry time
-        vm.warp(mockAsset.expiry());
-
-        assertTrue(mockAsset.isExpired(), "PoolShare should be expired at expiry time");
-
-        // Should revert with Expired error
-        vm.expectRevert(IErrors.Expired.selector);
-        guardHelper.onlyNotExpired();
-    }
-
-    // ------------------------------- _onlyExpired Tests ----------------------------------- //
-
-    function test_onlyExpired_ShouldRevert_WhenNotExpired() external {
-        // PoolShare should not be expired at setup
-        assertFalse(mockAsset.isExpired(), "PoolShare should not be expired");
-
-        // Should revert with NotExpired error
-        vm.expectRevert(IErrors.NotExpired.selector);
-        guardHelper.onlyExpired();
-    }
-
-    function test_onlyExpired_ShouldPass_WhenExpired() external {
-        // Warp time to make asset expired
-        vm.warp(block.timestamp + 2 days);
-
-        assertTrue(mockAsset.isExpired(), "PoolShare should be expired");
-
-        // Should not revert
-        guardHelper.onlyExpired();
-    }
-
-    function test_onlyExpired_ShouldPass_WhenExactlyAtExpiry() external {
-        // Warp to exact expiry time
-        vm.warp(mockAsset.expiry());
-
-        assertTrue(mockAsset.isExpired(), "PoolShare should be expired at expiry time");
-
-        // Should not revert
-        guardHelper.onlyExpired();
-    }
-
-    // ------------------------------- _onlyInitialized Tests ----------------------------------- //
-
-    function test_onlyInitialized_ShouldPass_WhenInitialized() external {
-        // SwapToken should be initialized in setup (both addresses non-zero)
-        // Should not revert
-        guardHelper.onlyInitialized();
-    }
-
-    function test_onlyInitialized_ShouldRevert_WhenNotInitialized_BothZero() external {
-        // Set both addresses to zero
-        guardHelper.setSwapToken(address(0), address(0));
-
-        // Should revert with Uninitialized error
-        vm.expectRevert(IErrors.Uninitialized.selector);
-        guardHelper.onlyInitialized();
-    }
-
-    function test_onlyInitialized_ShouldRevert_WhenNotInitialized_ZeroDSAddress() external {
-        // Set Swap Token address to zero, keep Principal Token
-        guardHelper.setSwapToken(address(0), address(mockPrincipalToken));
-
-        // Should revert with Uninitialized error
-        vm.expectRevert(IErrors.Uninitialized.selector);
-        guardHelper.onlyInitialized();
-    }
-
-    function test_onlyInitialized_ShouldRevert_WhenNotInitialized_ZeroCTAddress() external {
-        // Set Principal Token address to zero, keep Swap Token
-        guardHelper.setSwapToken(address(mockAsset), address(0));
-
-        // Should revert with Uninitialized error
-        vm.expectRevert(IErrors.Uninitialized.selector);
-        guardHelper.onlyInitialized();
-    }
-
     // ------------------------------- safeBeforeExpired Tests ----------------------------------- //
 
     function test_safeBeforeExpired_ShouldPass_WhenInitializedAndNotExpired() external {
-        // SwapToken should be initialized and not expired
+        // Shares should be initialized and not expired
         assertFalse(mockAsset.isExpired(), "PoolShare should not be expired");
 
         // Should not revert
@@ -255,25 +155,27 @@ contract GuardTest is Helper {
     function test_isExpired_Integration_WithRealAsset() external {
         // Test with real PoolShare contract behavior
         uint256 futureExpiry = block.timestamp + 1 hours;
-        PoolShare testAsset = new PoolShare("TEST", "TEST", user1, futureExpiry, 1 ether);
-        PoolShare testPrincipalToken = new PoolShare("TEST_CT", "TEST_CT", user1, futureExpiry, 1 ether);
+        constructorParams.expiry = futureExpiry;
+
+        PoolShare testAsset = new PoolShare(constructorParams);
+        PoolShare testPrincipalToken = new PoolShare(constructorParams);
 
         // Set up with test assets
         guardHelper.setSwapToken(address(testAsset), address(testPrincipalToken));
 
         // Should not be expired initially
         assertFalse(testAsset.isExpired(), "Should not be expired initially");
-        guardHelper.onlyNotExpired();
+        guardHelper.safeBeforeExpired();
 
         // Should be expired after time passes
         vm.warp(futureExpiry);
         assertTrue(testAsset.isExpired(), "Should be expired after time passes");
 
         vm.expectRevert(IErrors.Expired.selector);
-        guardHelper.onlyNotExpired();
+        guardHelper.safeBeforeExpired();
 
         // Should pass expired check
-        guardHelper.onlyExpired();
+        guardHelper.safeAfterExpired();
     }
 
     function test_allFunctions_WithDifferentAssetExpiryTimes() external {
@@ -284,8 +186,10 @@ contract GuardTest is Helper {
         expiryTimes[2] = block.timestamp + 1 days;
 
         for (uint256 i = 0; i < expiryTimes.length; i++) {
-            PoolShare testAsset = new PoolShare("TEST", "TEST", user1, expiryTimes[i], 1 ether);
-            PoolShare testPrincipalToken = new PoolShare("TEST_CT", "TEST_CT", user1, expiryTimes[i], 1 ether);
+            constructorParams.expiry = expiryTimes[i];
+
+            PoolShare testAsset = new PoolShare(constructorParams);
+            PoolShare testPrincipalToken = new PoolShare(constructorParams);
 
             // Set up with test assets
             guardHelper.setSwapToken(address(testAsset), address(testPrincipalToken));

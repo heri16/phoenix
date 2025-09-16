@@ -3,11 +3,9 @@ pragma solidity ^0.8.30;
 
 import {CorkConfig} from "contracts/core/CorkConfig.sol";
 import {ModuleState} from "contracts/core/ModuleState.sol";
-import {CollateralAssetManager} from "contracts/libraries/CollateralAssetManager.sol";
-import {Market, MarketLibrary} from "contracts/libraries/Market.sol";
+import {Market} from "contracts/libraries/Market.sol";
 import {MarketId} from "contracts/libraries/Market.sol";
-import {Balances, CorkPoolPoolArchive, PoolState, State} from "contracts/libraries/State.sol";
-import {SwapToken, SwapTokenLibrary} from "contracts/libraries/SwapToken.sol";
+import {Balances, CollateralAssetManager, CorkPoolPoolArchive, PoolState, State} from "contracts/libraries/State.sol";
 import {Helper} from "test/forge/Helper.sol";
 import {ERC20Mock} from "test/mocks/ERC20Mock.sol";
 
@@ -116,8 +114,8 @@ contract ModuleStateTest is Helper {
         configContract = address(7);
 
         vm.startPrank(DEFAULT_ADDRESS);
-        deployContracts(DEFAULT_ADDRESS, DEFAULT_ADDRESS);
-        (collateralAsset, referenceAsset, id) = createNewMarketPair(block.timestamp + 1 days);
+        deployContracts(DEFAULT_ADDRESS, DEFAULT_ADDRESS, DEFAULT_ADDRESS);
+        (collateralAsset, referenceAsset, id) = createNewPoolPair(block.timestamp + 1 days);
         vm.stopPrank();
 
         vm.startPrank(admin);

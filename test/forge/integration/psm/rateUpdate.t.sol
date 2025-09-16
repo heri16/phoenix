@@ -2,10 +2,10 @@ pragma solidity ^0.8.30;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {PoolShare} from "contracts/core/assets/PoolShare.sol";
-
-import {Market, MarketId, MarketLibrary} from "contracts/libraries/Market.sol";
+import {IPoolManager} from "contracts/interfaces/IPoolManager.sol";
+import {IUnwindSwap} from "contracts/interfaces/IUnwindSwap.sol";
+import {Market, MarketId} from "contracts/libraries/Market.sol";
 import {TransferHelper} from "contracts/libraries/TransferHelper.sol";
-
 import {Helper} from "test/forge/Helper.sol";
 import {ERC20Mock} from "test/mocks/ERC20Mock.sol";
 
@@ -26,7 +26,7 @@ contract CorkPoolTest is Helper {
 
     function setUp() public {
         vm.startPrank(DEFAULT_ADDRESS);
-        deployContracts(DEFAULT_ADDRESS, DEFAULT_ADDRESS);
+        deployContracts(DEFAULT_ADDRESS, DEFAULT_ADDRESS, DEFAULT_ADDRESS);
 
         (collateralAsset, referenceAsset,) = createMarket(EXPIRY, 1 ether);
 
@@ -88,7 +88,6 @@ contract CorkPoolTest is Helper {
 
     function testFuzz_deposit(uint8 raDecimals, uint8 paDecimals) external {
         (raDecimals, paDecimals) = setupDifferentDecimals(raDecimals, paDecimals);
-        vm.resetGasMetering();
 
         depositAmount = TransferHelper.normalizeDecimals(depositAmount, TARGET_DECIMALS, raDecimals);
 
@@ -113,7 +112,7 @@ contract CorkPoolTest is Helper {
 
         swapAmount = TransferHelper.normalizeDecimals(swapAmount, TARGET_DECIMALS, paDecimals);
 
-        (received,,) = corkPool.exercise(defaultCurrencyId, 0, swapAmount, DEFAULT_ADDRESS, 0, type(uint256).max);
+        (received,,) = corkPool.exercise(IPoolManager.ExerciseParams({poolId: defaultCurrencyId, shares: 0, compensation: swapAmount, receiver: DEFAULT_ADDRESS, minAssetsOut: 0, maxOtherAssetSpent: type(uint256).max}));
 
         uint256 expectedAmount = TransferHelper.normalizeDecimals(1 ether, TARGET_DECIMALS, raDecimals);
         uint256 acceptableDelta = TransferHelper.normalizeDecimals(1, TARGET_DECIMALS, raDecimals);
@@ -138,7 +137,7 @@ contract CorkPoolTest is Helper {
 
         swapAmount = TransferHelper.normalizeDecimals(swapAmount, TARGET_DECIMALS, paDecimals);
 
-        (received,,) = corkPool.exercise(defaultCurrencyId, 0, swapAmount, DEFAULT_ADDRESS, 0, type(uint256).max);
+        (received,,) = corkPool.exercise(IPoolManager.ExerciseParams({poolId: defaultCurrencyId, shares: 0, compensation: swapAmount, receiver: DEFAULT_ADDRESS, minAssetsOut: 0, maxOtherAssetSpent: type(uint256).max}));
         //forward to expiry
         uint256 expiry = swapToken.expiry();
         vm.warp(expiry + 1);
@@ -169,20 +168,20 @@ contract CorkPoolTest is Helper {
 
         swapAmount = TransferHelper.normalizeDecimals(swapAmount, TARGET_DECIMALS, paDecimals);
 
-        (received,,) = corkPool.exercise(defaultCurrencyId, 0, swapAmount, DEFAULT_ADDRESS, 0, type(uint256).max);
+        (received,,) = corkPool.exercise(IPoolManager.ExerciseParams({poolId: defaultCurrencyId, shares: 0, compensation: swapAmount, receiver: DEFAULT_ADDRESS, minAssetsOut: 0, maxOtherAssetSpent: type(uint256).max}));
 
         // and weunwindSwap half of the swaped amount
         uint256 unwindSwapAmount = 0.25 ether * rate / 1 ether;
 
         uint256 adjustedunwindSwapAmount = TransferHelper.normalizeDecimals(unwindSwapAmount, TARGET_DECIMALS, raDecimals);
 
-        (uint256 receivedReferenceAsset, uint256 receivedSwapToken,,,) = corkPool.unwindSwap(defaultCurrencyId, adjustedunwindSwapAmount, DEFAULT_ADDRESS);
+        IUnwindSwap.UnwindSwapReturnParams memory unwindReturnParams = corkPool.unwindSwap(defaultCurrencyId, adjustedunwindSwapAmount, DEFAULT_ADDRESS);
 
         uint256 expectedAmount = TransferHelper.normalizeDecimals(0.25 ether, TARGET_DECIMALS, paDecimals);
         uint256 acceptableDelta = TransferHelper.normalizeDecimals(1, TARGET_DECIMALS, paDecimals);
 
-        vm.assertApproxEqAbs(receivedReferenceAsset, expectedAmount, acceptableDelta);
-        vm.assertApproxEqAbs(receivedSwapToken, unwindSwapAmount, acceptableDelta);
+        vm.assertApproxEqAbs(unwindReturnParams.receivedReferenceAsset, expectedAmount, acceptableDelta);
+        vm.assertApproxEqAbs(unwindReturnParams.receivedSwapToken, unwindSwapAmount, acceptableDelta);
     }
 
     function testFuzz_swapPrincipalTokenSwapToken(uint8 raDecimals, uint8 paDecimals) external {

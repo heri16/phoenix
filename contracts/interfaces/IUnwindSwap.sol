@@ -10,6 +10,14 @@ import {MarketId} from "contracts/libraries/Market.sol";
  * @notice IUnwindSwap interface for supporting unwindSwap features through CorkPool
  */
 interface IUnwindSwap is IErrors {
+    struct UnwindSwapReturnParams {
+        uint256 receivedReferenceAsset; // The amount of reference asset that would be received
+        uint256 receivedSwapToken; // The amount of swap token that would be received
+        uint256 feePercentage; // The fee percentage that would be applied
+        uint256 fee; // The fee amount that would be charged
+        uint256 swapRate; // The swap rate that would be used during the unwind swap
+    }
+
     /**
      * @notice emitted when unwindSwap is done
      * @param id the id of Cork Pool
@@ -40,13 +48,14 @@ interface IUnwindSwap is IErrors {
      * @param id the id of Cork Pool
      * @param amount the amount of Collateral Asset to use
      * @param receiver the address to receive the Reference Asset and Swap Token
-     * @return receivedReferenceAsset the amount of Reference Asset received
-     * @return receivedSwapToken the amount of Swap Token received
-     * @return feePercentage the fee in percentage
-     * @return fee the fee charged
-     * @return swapRate the effective swap rate of the Swap Token at the time of unwindSwap
+     * @return returnParams The return parameters for the unwind swap
+     * returnParams.receivedReferenceAsset the amount of Reference Asset received
+     * returnParams.receivedSwapToken the amount of Swap Token received
+     * returnParams.feePercentage the fee in percentage
+     * returnParams.fee the fee charged
+     * returnParams.swapRate the effective swap rate of the Swap Token at the time of unwindSwap
      */
-    function unwindSwap(MarketId id, uint256 amount, address receiver) external returns (uint256 receivedReferenceAsset, uint256 receivedSwapToken, uint256 feePercentage, uint256 fee, uint256 swapRate);
+    function unwindSwap(MarketId id, uint256 amount, address receiver) external returns (UnwindSwapReturnParams memory returnParams);
 
     /**
      * @notice return the amount of available Reference Asset and Swap Token to purchase.

@@ -2,10 +2,10 @@
 pragma solidity ^0.8.30;
 
 import {PoolShare} from "contracts/core/assets/PoolShare.sol";
-import {IErrors} from "contracts/interfaces/IErrors.sol";
-import {MarketId} from "contracts/libraries/Market.sol";
+import {ICorkPoolAdapter} from "contracts/interfaces/ICorkPoolAdapter.sol";
 import {TransferHelper} from "contracts/libraries/TransferHelper.sol";
 import {CorkPoolAdapter} from "contracts/periphery/CorkPoolAdapter.sol";
+import {ErrorsLib} from "contracts/periphery/bundler3/libraries/ErrorsLib.sol";
 import "contracts/periphery/bundler3/libraries/ErrorsLib.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/interfaces/IERC20.sol";
 import {Helper} from "test/forge/Helper.sol";
@@ -32,7 +32,7 @@ contract CorkPoolAdapterTest is Helper {
 
     function setUp() public {
         vm.startPrank(DEFAULT_ADDRESS);
-        deployContracts(DEFAULT_ADDRESS, DEFAULT_ADDRESS);
+        deployContracts(DEFAULT_ADDRESS, DEFAULT_ADDRESS, DEFAULT_ADDRESS);
         deployPeriphery();
         vm.stopPrank();
     }
@@ -75,7 +75,7 @@ contract CorkPoolAdapterTest is Helper {
         uint256 receiverDSBefore = swapToken.balanceOf(RECEIVER);
         uint256 receiverCollateralBefore = collateralAsset.balanceOf(RECEIVER);
 
-        corkPoolAdapter.safeMint(defaultCurrencyId, shares, RECEIVER, type(uint256).max, block.timestamp);
+        corkPoolAdapter.safeMint(ICorkPoolAdapter.SafeMintParams({poolId: defaultCurrencyId, shares: shares, receiver: RECEIVER, maxAssetsIn: type(uint256).max, deadline: block.timestamp}));
 
         uint256 peripheryBalanceAfter = collateralAsset.balanceOf(address(corkPoolAdapter));
         uint256 defaultAddressBalanceAfter = collateralAsset.balanceOf(DEFAULT_ADDRESS);
@@ -111,7 +111,7 @@ contract CorkPoolAdapterTest is Helper {
         uint256 receiverCollateralBefore = collateralAsset.balanceOf(RECEIVER);
         uint256 corkBalanceBefore = collateralAsset.balanceOf(address(corkPool));
 
-        corkPoolAdapter.safeMint(defaultCurrencyId, shares, RECEIVER, type(uint256).max, block.timestamp);
+        corkPoolAdapter.safeMint(ICorkPoolAdapter.SafeMintParams({poolId: defaultCurrencyId, shares: shares, receiver: RECEIVER, maxAssetsIn: type(uint256).max, deadline: block.timestamp}));
 
         uint256 peripheryBalanceAfter = collateralAsset.balanceOf(address(corkPoolAdapter));
         uint256 defaultAddressBalanceAfter = collateralAsset.balanceOf(DEFAULT_ADDRESS);
@@ -134,8 +134,8 @@ contract CorkPoolAdapterTest is Helper {
         vm.startPrank(DEFAULT_ADDRESS);
         setupDifferentDecimals(18, 18);
 
-        vm.expectRevert(IErrors.ZeroAddress.selector);
-        corkPoolAdapter.safeMint(defaultCurrencyId, 100e18, address(0), type(uint256).max, block.timestamp);
+        vm.expectRevert(ErrorsLib.ZeroAddress.selector);
+        corkPoolAdapter.safeMint(ICorkPoolAdapter.SafeMintParams({poolId: defaultCurrencyId, shares: 100e18, receiver: address(0), maxAssetsIn: type(uint256).max, deadline: block.timestamp}));
 
         vm.stopPrank();
     }
@@ -145,7 +145,7 @@ contract CorkPoolAdapterTest is Helper {
         setupDifferentDecimals(18, 18);
 
         vm.expectRevert(ErrorsLib.ZeroShares.selector);
-        corkPoolAdapter.safeMint(defaultCurrencyId, 0, RECEIVER, type(uint256).max, block.timestamp);
+        corkPoolAdapter.safeMint(ICorkPoolAdapter.SafeMintParams({poolId: defaultCurrencyId, shares: 0, receiver: RECEIVER, maxAssetsIn: type(uint256).max, deadline: block.timestamp}));
 
         vm.stopPrank();
     }
@@ -156,8 +156,8 @@ contract CorkPoolAdapterTest is Helper {
         vm.stopPrank();
 
         vm.prank(address(0x999));
-        vm.expectRevert(IErrors.UnauthorizedSender.selector);
-        corkPoolAdapter.safeMint(defaultCurrencyId, 100e18, RECEIVER, type(uint256).max, block.timestamp);
+        vm.expectRevert(ErrorsLib.UnauthorizedSender.selector);
+        corkPoolAdapter.safeMint(ICorkPoolAdapter.SafeMintParams({poolId: defaultCurrencyId, shares: 100e18, receiver: RECEIVER, maxAssetsIn: type(uint256).max, deadline: block.timestamp}));
     }
 
     function test_deposit_success_18decimals() public {
@@ -174,7 +174,7 @@ contract CorkPoolAdapterTest is Helper {
         uint256 receiverCollateralBefore = collateralAsset.balanceOf(RECEIVER);
         uint256 corkBalanceBefore = collateralAsset.balanceOf(address(corkPool));
 
-        corkPoolAdapter.safeDeposit(defaultCurrencyId, assets, RECEIVER, 0, block.timestamp);
+        corkPoolAdapter.safeDeposit(ICorkPoolAdapter.SafeDepositParams({poolId: defaultCurrencyId, assets: assets, receiver: RECEIVER, minSharesOut: 0, deadline: block.timestamp}));
 
         uint256 peripheryBalanceAfter = collateralAsset.balanceOf(address(corkPoolAdapter));
         uint256 defaultAddressBalanceAfter = collateralAsset.balanceOf(DEFAULT_ADDRESS);
@@ -215,7 +215,7 @@ contract CorkPoolAdapterTest is Helper {
             cork: collateralAsset.balanceOf(address(corkPool))
         });
 
-        corkPoolAdapter.safeDeposit(defaultCurrencyId, assets, RECEIVER, 0, block.timestamp);
+        corkPoolAdapter.safeDeposit(ICorkPoolAdapter.SafeDepositParams({poolId: defaultCurrencyId, assets: assets, receiver: RECEIVER, minSharesOut: 0, deadline: block.timestamp}));
 
         Balances memory _after = Balances({
             periphery: collateralAsset.balanceOf(address(corkPoolAdapter)),
@@ -249,7 +249,7 @@ contract CorkPoolAdapterTest is Helper {
         uint256 receiverDSBefore = swapToken.balanceOf(RECEIVER);
         uint256 receiverCollateralBefore = collateralAsset.balanceOf(RECEIVER);
 
-        corkPoolAdapter.safeDeposit(defaultCurrencyId, mintAmount, RECEIVER, 0, block.timestamp);
+        corkPoolAdapter.safeDeposit(ICorkPoolAdapter.SafeDepositParams({poolId: defaultCurrencyId, assets: mintAmount, receiver: RECEIVER, minSharesOut: 0, deadline: block.timestamp}));
 
         uint256 peripheryBalanceAfter = collateralAsset.balanceOf(address(corkPoolAdapter));
         uint256 defaultAddressBalanceAfter = collateralAsset.balanceOf(DEFAULT_ADDRESS);
@@ -281,7 +281,7 @@ contract CorkPoolAdapterTest is Helper {
         uint256 receiverCollateralBefore = collateralAsset.balanceOf(RECEIVER);
         uint256 corkBalanceBefore = collateralAsset.balanceOf(address(corkPool));
 
-        corkPoolAdapter.safeDeposit(defaultCurrencyId, transferAmount, RECEIVER, 0, block.timestamp);
+        corkPoolAdapter.safeDeposit(ICorkPoolAdapter.SafeDepositParams({poolId: defaultCurrencyId, assets: transferAmount, receiver: RECEIVER, minSharesOut: 0, deadline: block.timestamp}));
 
         uint256 peripheryBalanceAfter = collateralAsset.balanceOf(address(corkPoolAdapter));
         uint256 defaultAddressBalanceAfter = collateralAsset.balanceOf(DEFAULT_ADDRESS);
@@ -304,8 +304,8 @@ contract CorkPoolAdapterTest is Helper {
         vm.startPrank(DEFAULT_ADDRESS);
         setupDifferentDecimals(18, 18);
 
-        vm.expectRevert(IErrors.DeadlineExceeded.selector);
-        corkPoolAdapter.safeMint(defaultCurrencyId, 100e18, RECEIVER, type(uint256).max, block.timestamp - 1);
+        vm.expectRevert(ErrorsLib.DeadlineExceeded.selector);
+        corkPoolAdapter.safeMint(ICorkPoolAdapter.SafeMintParams({poolId: defaultCurrencyId, shares: 100e18, receiver: RECEIVER, maxAssetsIn: type(uint256).max, deadline: block.timestamp - 1}));
 
         vm.stopPrank();
     }
@@ -320,8 +320,8 @@ contract CorkPoolAdapterTest is Helper {
         // Set maxAssetsIn to a very low value to trigger slippage
         uint256 maxAssetsIn = 1; // Much lower than expected cost
 
-        vm.expectRevert(IErrors.SlippageExceeded.selector);
-        corkPoolAdapter.safeMint(defaultCurrencyId, shares, RECEIVER, maxAssetsIn, block.timestamp);
+        vm.expectRevert(ErrorsLib.SlippageExceeded.selector);
+        corkPoolAdapter.safeMint(ICorkPoolAdapter.SafeMintParams({poolId: defaultCurrencyId, shares: shares, receiver: RECEIVER, maxAssetsIn: maxAssetsIn, deadline: block.timestamp}));
 
         vm.stopPrank();
     }
@@ -330,8 +330,8 @@ contract CorkPoolAdapterTest is Helper {
         vm.startPrank(DEFAULT_ADDRESS);
         setupDifferentDecimals(18, 18);
 
-        vm.expectRevert(IErrors.ZeroAddress.selector);
-        corkPoolAdapter.safeDeposit(defaultCurrencyId, 100e18, address(0), 0, block.timestamp);
+        vm.expectRevert(ErrorsLib.ZeroAddress.selector);
+        corkPoolAdapter.safeDeposit(ICorkPoolAdapter.SafeDepositParams({poolId: defaultCurrencyId, assets: 100e18, receiver: address(0), minSharesOut: 0, deadline: block.timestamp}));
 
         vm.stopPrank();
     }
@@ -340,8 +340,8 @@ contract CorkPoolAdapterTest is Helper {
         vm.startPrank(DEFAULT_ADDRESS);
         setupDifferentDecimals(18, 18);
 
-        vm.expectRevert(IErrors.ZeroAmount.selector);
-        corkPoolAdapter.safeDeposit(defaultCurrencyId, 0, RECEIVER, 0, block.timestamp);
+        vm.expectRevert(ErrorsLib.ZeroAmount.selector);
+        corkPoolAdapter.safeDeposit(ICorkPoolAdapter.SafeDepositParams({poolId: defaultCurrencyId, assets: 0, receiver: RECEIVER, minSharesOut: 0, deadline: block.timestamp}));
 
         vm.stopPrank();
     }
@@ -352,8 +352,8 @@ contract CorkPoolAdapterTest is Helper {
         vm.stopPrank();
 
         vm.prank(address(0x999));
-        vm.expectRevert(IErrors.UnauthorizedSender.selector);
-        corkPoolAdapter.safeDeposit(defaultCurrencyId, 100e18, RECEIVER, 0, block.timestamp);
+        vm.expectRevert(ErrorsLib.UnauthorizedSender.selector);
+        corkPoolAdapter.safeDeposit(ICorkPoolAdapter.SafeDepositParams({poolId: defaultCurrencyId, assets: 100e18, receiver: RECEIVER, minSharesOut: 0, deadline: block.timestamp}));
     }
 
     function test_deposit_revertsOnSlippageExceeded() public {
@@ -366,8 +366,8 @@ contract CorkPoolAdapterTest is Helper {
         // Set minSharesOut to a very high value to trigger slippage
         uint256 minSharesOut = assets * 2; // Expect double the shares than possible
 
-        vm.expectRevert(IErrors.SlippageExceeded.selector);
-        corkPoolAdapter.safeDeposit(defaultCurrencyId, assets, RECEIVER, minSharesOut, block.timestamp);
+        vm.expectRevert(ErrorsLib.SlippageExceeded.selector);
+        corkPoolAdapter.safeDeposit(ICorkPoolAdapter.SafeDepositParams({poolId: defaultCurrencyId, assets: assets, receiver: RECEIVER, minSharesOut: minSharesOut, deadline: block.timestamp}));
 
         vm.stopPrank();
     }
@@ -376,8 +376,8 @@ contract CorkPoolAdapterTest is Helper {
         vm.startPrank(DEFAULT_ADDRESS);
         setupDifferentDecimals(18, 18);
 
-        vm.expectRevert(IErrors.DeadlineExceeded.selector);
-        corkPoolAdapter.safeDeposit(defaultCurrencyId, 100e18, RECEIVER, 0, block.timestamp - 1);
+        vm.expectRevert(ErrorsLib.DeadlineExceeded.selector);
+        corkPoolAdapter.safeDeposit(ICorkPoolAdapter.SafeDepositParams({poolId: defaultCurrencyId, assets: 100e18, receiver: RECEIVER, minSharesOut: 0, deadline: block.timestamp - 1}));
 
         vm.stopPrank();
     }
@@ -395,7 +395,7 @@ contract CorkPoolAdapterTest is Helper {
         uint256 receiverBalanceBefore = collateralAsset.balanceOf(RECEIVER);
         uint256 corkBalanceBefore = collateralAsset.balanceOf(address(corkPool));
 
-        corkPoolAdapter.safeMint(defaultCurrencyId, shares, RECEIVER, type(uint256).max, block.timestamp);
+        corkPoolAdapter.safeMint(ICorkPoolAdapter.SafeMintParams({poolId: defaultCurrencyId, shares: shares, receiver: RECEIVER, maxAssetsIn: type(uint256).max, deadline: block.timestamp}));
 
         uint256 totalSupplyAfter = collateralAsset.totalSupply();
         uint256 peripheryBalanceAfter = collateralAsset.balanceOf(address(corkPoolAdapter));
@@ -425,7 +425,7 @@ contract CorkPoolAdapterTest is Helper {
         uint256 receiverBalanceBefore = collateralAsset.balanceOf(RECEIVER);
         uint256 corkBalanceBefore = collateralAsset.balanceOf(address(corkPool));
 
-        corkPoolAdapter.safeDeposit(defaultCurrencyId, assets, RECEIVER, 0, block.timestamp);
+        corkPoolAdapter.safeDeposit(ICorkPoolAdapter.SafeDepositParams({poolId: defaultCurrencyId, assets: assets, receiver: RECEIVER, minSharesOut: 0, deadline: block.timestamp}));
 
         uint256 totalSupplyAfter = collateralAsset.totalSupply();
         uint256 peripheryBalanceAfter = collateralAsset.balanceOf(address(corkPoolAdapter));
@@ -459,7 +459,7 @@ contract CorkPoolAdapterTest is Helper {
         uint256 ptBalanceDefaultBefore = principalToken.balanceOf(DEFAULT_ADDRESS);
         uint256 dsBalanceDefaultBefore = swapToken.balanceOf(DEFAULT_ADDRESS);
 
-        corkPoolAdapter.safeMint(defaultCurrencyId, shares, RECEIVER, type(uint256).max, block.timestamp);
+        corkPoolAdapter.safeMint(ICorkPoolAdapter.SafeMintParams({poolId: defaultCurrencyId, shares: shares, receiver: RECEIVER, maxAssetsIn: type(uint256).max, deadline: block.timestamp}));
 
         uint256 ptBalanceAfter = principalToken.balanceOf(RECEIVER);
         uint256 dsBalanceAfter = swapToken.balanceOf(RECEIVER);
@@ -493,7 +493,7 @@ contract CorkPoolAdapterTest is Helper {
         uint256 ptBalanceDefaultBefore = principalToken.balanceOf(DEFAULT_ADDRESS);
         uint256 dsBalanceDefaultBefore = swapToken.balanceOf(DEFAULT_ADDRESS);
 
-        corkPoolAdapter.safeDeposit(defaultCurrencyId, assets, RECEIVER, 0, block.timestamp);
+        corkPoolAdapter.safeDeposit(ICorkPoolAdapter.SafeDepositParams({poolId: defaultCurrencyId, assets: assets, receiver: RECEIVER, minSharesOut: 0, deadline: block.timestamp}));
 
         uint256 ptBalanceAfter = principalToken.balanceOf(RECEIVER);
         uint256 dsBalanceAfter = swapToken.balanceOf(RECEIVER);

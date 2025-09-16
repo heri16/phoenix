@@ -9,6 +9,4 @@ pragma solidity ^0.8.30;
 interface ISwapRate {
     /// @notice returns the swap rate, if 0 then it means that there's no swap rate associated with the token
     function swapRate() external view returns (uint256 rate);
-
-    function updateSwapRate(uint256 newRate) external;
 }

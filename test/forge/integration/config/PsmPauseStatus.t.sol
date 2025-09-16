@@ -1,13 +1,14 @@
 pragma solidity ^0.8.30;
 
 import {IErrors} from "contracts/interfaces/IErrors.sol";
+import {IPoolManager} from "contracts/interfaces/IPoolManager.sol";
 import {Helper} from "test/forge/Helper.sol";
 
 contract CorkPoolPauseStatusIntegrationTest is Helper {
     function setUp() public {
         vm.startPrank(DEFAULT_ADDRESS);
 
-        deployContracts(DEFAULT_ADDRESS, DEFAULT_ADDRESS);
+        deployContracts(DEFAULT_ADDRESS, DEFAULT_ADDRESS, DEFAULT_ADDRESS);
         createMarket(1 days);
     }
 
@@ -39,7 +40,7 @@ contract CorkPoolPauseStatusIntegrationTest is Helper {
         corkConfig.pauseSwaps(defaultCurrencyId);
 
         vm.expectRevert(IErrors.Paused.selector);
-        corkPool.exercise(defaultCurrencyId, 0, 0.1 ether, DEFAULT_ADDRESS, 0, type(uint256).max);
+        corkPool.exercise(IPoolManager.ExerciseParams({poolId: defaultCurrencyId, shares: 0, compensation: 0.1 ether, receiver: DEFAULT_ADDRESS, minAssetsOut: 0, maxOtherAssetSpent: type(uint256).max}));
     }
 
     function test_PauseCancelDepositStatus_blocksCancel() public {
