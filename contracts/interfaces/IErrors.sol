@@ -70,4 +70,7 @@ interface IErrors {
 
     /// @notice thrown when withdraw amount is invalid, e.g trying to withdraw 100 CPT/100 CST but only capable of withdrawing 50 CPT/50 CST
     error InvalidWithdrawAmount(uint256 expected, uint256 actual);
+
+    /// @notice thrown when an input amount does not meet some minimum value requirements
+    error InsufficientAmount();
 }

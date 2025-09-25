@@ -73,7 +73,7 @@ contract CorkPoolAdapterUnwindExerciseTest is Helper {
         uint256 maxAssetsIn = 200e18;
 
         // Hardcoded expected amounts based on 1% fee
-        uint256 expectedAssetIn = 101_010_100_616_465_037_775; // ~101.01e18 (100e18 + 1% fee)
+        uint256 expectedAssetIn = 101_010_100_616_465_037_776; // ~101.01e18 (100e18 + 1% fee)
         uint256 expectedCompensationOut = 100e18; // Should receive 100e18 compensation
 
         // Get preview of the unwind exercise for reference

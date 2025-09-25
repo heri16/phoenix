@@ -22,6 +22,10 @@ abstract contract Expiry is IExpiry {
     uint256 internal immutable EXPIRY;
     uint256 internal immutable ISSUED_AT;
 
+    ///======================================================///
+    ///================== CONSTRUCTOR =======================///
+    ///======================================================///
+
     /**
      * @notice Initializes the shares contract with the given expiry timestamp.
      * If the expiry timestamp is in the past, the transaction will revert with an Expired error.
@@ -34,6 +38,10 @@ abstract contract Expiry is IExpiry {
         EXPIRY = _expiry;
         ISSUED_AT = block.timestamp;
     }
+
+    ///======================================================///
+    ///================== VIEW FUNCTIONS ====================///
+    ///======================================================///
 
     /// @inheritdoc IExpiry
     function isExpired() public view virtual returns (bool) {
@@ -65,11 +73,19 @@ contract PoolShare is ERC20Burnable, ERC20Permit, Ownable, Expiry, ISwapRate, IP
 
     address public factory;
 
+    ///======================================================///
+    ///=================== MODIFIERS ========================///
+    ///======================================================///
+
     modifier onlyFactory() {
         require(_msgSender() == factory, OwnableUnauthorizedAccount(_msgSender()));
 
         _;
     }
+
+    ///======================================================///
+    ///================== CONSTRUCTOR =======================///
+    ///======================================================///
 
     constructor(IPoolShare.ConstructorParams memory params) ERC20(params.pairName, params.symbol) ERC20Permit(params.pairName) Ownable(params.poolManager) Expiry(params.expiry) {
         pairName = params.pairName;
@@ -78,6 +94,10 @@ contract PoolShare is ERC20Burnable, ERC20Permit, Ownable, Expiry, ISwapRate, IP
 
         factory = _msgSender();
     }
+
+    ///======================================================///
+    ///================== VIEW FUNCTIONS ====================///
+    ///======================================================///
 
     /// @inheritdoc ISwapRate
     function swapRate() external view returns (uint256 rate) {
@@ -93,23 +113,9 @@ contract PoolShare is ERC20Burnable, ERC20Permit, Ownable, Expiry, ISwapRate, IP
         (collateralAsset, referenceAsset) = poolManager.valueLocked(poolId);
     }
 
-    /**
-     * @notice Sets the pool ID for the shares contract
-     * @dev This function can only be called by the factory contract
-     * @param _poolId The pool ID for the shares contract
-     */
-    function setPoolId(MarketId _poolId) external onlyFactory {
-        poolId = _poolId;
-    }
-
-    /**
-     * @notice Sets the cork pool address for the shares contract
-     * @dev This function can only be called by the factory contract
-     * @param _poolManager The address of the cork pool manager contract
-     */
-    function setPoolManager(address _poolManager) external onlyFactory {
-        poolManager = IPoolManager(_poolManager);
-    }
+    ///======================================================///
+    ///================== CORE FUNCTIONS ====================///
+    ///======================================================///
 
     /**
      * @notice mints `amount` number of tokens to `to` address
@@ -165,6 +171,10 @@ contract PoolShare is ERC20Burnable, ERC20Permit, Ownable, Expiry, ISwapRate, IP
         _transfer(owner, to, amount);
     }
 
+    ///======================================================///
+    ///================= EVENT EMITTER FUNCTIONS ============///
+    ///======================================================///
+
     /// @inheritdoc IPoolShare
     function emitDeposit(address sender, address receiver, uint256 assets, uint256 shares) external onlyOwner {
         emit Deposit(sender, receiver, assets, shares);
@@ -184,6 +194,10 @@ contract PoolShare is ERC20Burnable, ERC20Permit, Ownable, Expiry, ISwapRate, IP
     function emitDepositOther(address sender, address owner, address asset, uint256 assets, uint256 shares) external onlyOwner {
         emit DepositOther(sender, owner, asset, assets, shares);
     }
+
+    ///======================================================///
+    ///=================== MAX FUNCTIONS ====================///
+    ///======================================================///
 
     /// @inheritdoc IPoolShare
     function maxMint(address owner) public view returns (uint256 maxAmount) {
@@ -249,6 +263,10 @@ contract PoolShare is ERC20Burnable, ERC20Permit, Ownable, Expiry, ISwapRate, IP
     function maxUnwindSwap(address receiver) public view returns (uint256 maxAmount) {
         return poolManager.maxUnwindSwap(poolId, receiver);
     }
+
+    ///======================================================///
+    ///================= PREVIEW FUNCTIONS ==================///
+    ///======================================================///
 
     /// @inheritdoc IPoolShare
     function previewExercise(uint256 shares, uint256 compensation) public view returns (uint256 assets, uint256 otherAssetSpent, uint256 fee) {

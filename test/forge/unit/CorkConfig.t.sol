@@ -334,16 +334,16 @@ contract CorkConfigTest is Helper {
         vm.startPrank(DEFAULT_ADDRESS);
 
         (collateralAsset, referenceAsset, id) = createNewPoolPair(block.timestamp + 1 days);
+        Market memory market = corkPool.market(id);
 
-        address paAddress;
-        address raAddress;
-        uint256 expiryTimestamp;
-        address rateOracle;
-        uint256 rateMin;
-        uint256 rateMax;
-        uint256 rateChangePerDayMax;
-        uint256 rateChangeCapacityMax;
-        (paAddress, raAddress, expiryTimestamp, rateOracle, rateMin, rateMax, rateChangePerDayMax, rateChangeCapacityMax) = corkPool.marketDetails(id);
+        address paAddress = market.referenceAsset;
+        address raAddress = market.collateralAsset;
+        uint256 expiryTimestamp = market.expiryTimestamp;
+        address rateOracle = market.rateOracle;
+        uint256 rateMin = market.rateMin;
+        uint256 rateMax = market.rateMax;
+        uint256 rateChangePerDayMax = market.rateChangePerDayMax;
+        uint256 rateChangeCapacityMax = market.rateChangeCapacityMax;
 
         assertEq(paAddress, address(0));
         assertEq(raAddress, address(0));
@@ -353,30 +353,6 @@ contract CorkConfigTest is Helper {
         assertEq(rateMax, 0);
         assertEq(rateChangePerDayMax, 0);
         assertEq(rateChangeCapacityMax, 0);
-
-        Market memory market = Market({
-            collateralAsset: address(collateralAsset),
-            referenceAsset: address(referenceAsset),
-            expiryTimestamp: 1 days,
-            rateOracle: address(testOracle),
-            rateMin: DEFAULT_RATE_MIN,
-            rateMax: DEFAULT_RATE_MAX,
-            rateChangePerDayMax: DEFAULT_RATE_CHANGE_PER_DAY_MAX,
-            rateChangeCapacityMax: DEFAULT_RATE_CHANGE_CAPACITY_MAX
-        });
-        MarketId id = corkPool.getId(market);
-        testOracle.setRate(id, defaultOracleRate());
-        corkConfig.createNewPool(market);
-
-        Market memory marketParams = corkPool.market(id);
-        assertEq(marketParams.referenceAsset, address(referenceAsset));
-        assertEq(marketParams.collateralAsset, address(collateralAsset));
-        assertEq(marketParams.expiryTimestamp, 1 days);
-        assertEq(marketParams.rateOracle, address(testOracle));
-        assertEq(marketParams.rateMin, DEFAULT_RATE_MIN);
-        assertEq(marketParams.rateMax, DEFAULT_RATE_MAX);
-        assertEq(marketParams.rateChangePerDayMax, DEFAULT_RATE_CHANGE_PER_DAY_MAX);
-        assertEq(marketParams.rateChangeCapacityMax, DEFAULT_RATE_CHANGE_CAPACITY_MAX);
     }
     //-----------------------------------------------------------------------------------------------------//
 

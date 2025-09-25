@@ -79,6 +79,10 @@ contract CorkPoolTest is Helper {
         raDecimals = uint8(bound(raDecimals, TARGET_DECIMALS, MAX_DECIMALS));
         paDecimals = uint8(bound(paDecimals, TARGET_DECIMALS, MAX_DECIMALS));
 
+        return deployWithDifferentDecimals(raDecimals, paDecimals);
+    }
+
+    function deployWithDifferentDecimals(uint8 raDecimals, uint8 paDecimals) internal returns (uint8, uint8) {
         (collateralAsset, referenceAsset, defaultCurrencyId) = createMarket(EXPIRY, raDecimals, paDecimals);
 
         (address _ct, address _swapToken) = corkPool.shares(defaultCurrencyId);
@@ -259,14 +263,6 @@ contract CorkPoolTest is Helper {
     function test_swapRate() public {
         uint256 rate = corkPool.swapRate(defaultCurrencyId);
         vm.assertEq(rate, defaultSwapRate(), "Swap rate should match default");
-    }
-
-    function test_availableForUnwindSwap() public {
-        corkPool.deposit(defaultCurrencyId, 1 ether, currentCaller());
-
-        (uint256 _referenceAsset, uint256 swapToken) = corkPool.availableForUnwindSwap(defaultCurrencyId);
-        vm.assertEq(_referenceAsset, 0);
-        vm.assertEq(swapToken, 0);
     }
 
     function test_RevertswapWithInsufficientLiquidity() external {
@@ -1042,7 +1038,108 @@ contract CorkPoolTest is Helper {
         corkPool.unwindMint(defaultCurrencyId, depositAmount, DEFAULT_ADDRESS, randomPerson);
     }
 
+    function test_mintShouldRevertWhenCollateralInIsZero() external {
+        vm.startPrank(DEFAULT_ADDRESS);
+        deployWithDifferentDecimals(6, 18);
+
+        // this should fail, max amount to be accepted is 1e12
+        uint256 depositAmount = 1e11;
+
+        vm.expectPartialRevert(IErrors.InsufficientAmount.selector);
+        uint256 collateralAmountIn = corkPool.mint(defaultCurrencyId, depositAmount, DEFAULT_ADDRESS);
+    }
+
+    function test_exerciseShouldNotAcceptZeroShares() external {
+        vm.startPrank(DEFAULT_ADDRESS);
+        deployWithDifferentDecimals(18, 6);
+
+        corkPool.mint(defaultCurrencyId, 100 ether, DEFAULT_ADDRESS);
+
+        IPoolManager.ExerciseParams memory params = IPoolManager.ExerciseParams(defaultCurrencyId, 9e11, 0, DEFAULT_ADDRESS, 0, 1 ether);
+        (, uint256 referenceSpent,) = corkPool.exercise(params);
+
+        assertEq(referenceSpent, 1);
+    }
+
     function defaultSwapRate() internal pure returns (uint256) {
         return 1.0 ether;
+    }
+
+    function test_swap_shouldNotReleaseFreeCollateral() external {
+        vm.startPrank(DEFAULT_ADDRESS);
+        deployWithDifferentDecimals(6, 18);
+
+        corkConfig.updateBaseRedemptionFeePercentage(defaultCurrencyId, 99_999_900_001_000);
+
+        corkPool.mint(defaultCurrencyId, 100 ether, DEFAULT_ADDRESS);
+
+        uint256 collateralOut = 1e6;
+
+        (uint256 shares, uint256 compensation, uint256 fee) = corkPool.swap(defaultCurrencyId, collateralOut, DEFAULT_ADDRESS);
+
+        assertEq(shares, collateralOut * 10 ** 12 + fee * 10 ** 12);
+
+        (uint256 collateralLocked, uint256 referenceLocked) = corkPool.valueLocked(defaultCurrencyId);
+
+        uint256 collateralNormalized = TransferHelper.normalizeDecimals(collateralLocked, 6, 18);
+
+        uint256 sharesTotalSupply = swapToken.totalSupply();
+
+        // make sure the shares have an equivalent backing of reference and collateral assets
+        assertEq(referenceLocked + collateralNormalized, sharesTotalSupply);
+    }
+
+    function test_swap_shouldNotReleaseFreeCollateralWithOne() external {
+        vm.startPrank(DEFAULT_ADDRESS);
+        deployWithDifferentDecimals(6, 18);
+
+        corkConfig.updateBaseRedemptionFeePercentage(defaultCurrencyId, 99_999_900_001_000);
+
+        corkPool.mint(defaultCurrencyId, 100 ether, DEFAULT_ADDRESS);
+
+        uint256 collateralOut = 1;
+
+        (uint256 shares, uint256 compensation, uint256 fee) = corkPool.swap(defaultCurrencyId, collateralOut, DEFAULT_ADDRESS);
+
+        // make sure that there's a fee even though the output is very small
+        assertGe(fee, 1);
+
+        (uint256 collateralLocked, uint256 referenceLocked) = corkPool.valueLocked(defaultCurrencyId);
+
+        uint256 collateralNormalized = TransferHelper.normalizeDecimals(collateralLocked, 6, 18);
+
+        uint256 sharesTotalSupply = swapToken.totalSupply();
+
+        // make sure the shares have an equivalent backing of reference and collateral assets
+        assertEq(referenceLocked + collateralNormalized, sharesTotalSupply);
+    }
+
+    function testFuzz_swap_shouldNotReleaseFreeCollateral(uint8 collateralDecimals, uint8 referenceDecimals) external {
+        vm.startPrank(DEFAULT_ADDRESS);
+
+        collateralDecimals = uint8(bound(collateralDecimals, 6, 17));
+        referenceDecimals = uint8(bound(collateralDecimals, 6, 17));
+
+        (collateralDecimals, referenceDecimals) = deployWithDifferentDecimals(collateralDecimals, referenceDecimals);
+
+        corkConfig.updateBaseRedemptionFeePercentage(defaultCurrencyId, 99_999_900_001_000);
+
+        corkPool.mint(defaultCurrencyId, 100 ether, DEFAULT_ADDRESS);
+
+        uint256 collateralOut = 10 ** collateralDecimals;
+
+        (uint256 shares, uint256 compensation, uint256 fee) = corkPool.swap(defaultCurrencyId, collateralOut, DEFAULT_ADDRESS);
+
+        assertEq(shares, collateralOut * 10 ** (18 - collateralDecimals) + fee * 10 ** (18 - collateralDecimals));
+
+        (uint256 collateralLocked, uint256 referenceLocked) = corkPool.valueLocked(defaultCurrencyId);
+
+        uint256 collateralNormalized = TransferHelper.normalizeDecimals(collateralLocked, collateralDecimals, 18);
+        uint256 referencelNormalized = TransferHelper.normalizeDecimals(referenceLocked, referenceDecimals, 18);
+
+        uint256 sharesTotalSupply = swapToken.totalSupply();
+
+        // make sure the shares have an equivalent backing of reference and collateral assets
+        assertEq(referencelNormalized + collateralNormalized, sharesTotalSupply);
     }
 }

@@ -384,13 +384,15 @@ contract CorkPoolTest is Helper {
         corkPool.deposit(marketId, 1000 ether, currentCaller());
 
         uint256 assetAmount = 100 ether;
-        uint256 expectedCompensation = 101_010_101_010_101_010_101;
+        uint256 expectedCompensation = 101_010_101_010_101_010_102;
+        uint256 expectedShares = 101_010_101_010_101_010_102;
+
         (address principalToken,) = corkPool.shares(marketId);
         // Expect both PoolSwap and ERC4626-compatible withdraw events
         vm.expectEmit(true, true, true, true);
         emit IPoolManager.PoolSwap(marketId, user, user, assetAmount, expectedCompensation, 0, 0, false);
         vm.expectEmit(true, true, true, true, address(corkPool));
-        emit IPoolManager.PoolFee(marketId, user, 1_010_101_010_101_010_101, 0);
+        emit IPoolManager.PoolFee(marketId, user, 1_010_101_010_101_010_102, 0);
         vm.expectEmit(true, true, true, true, principalToken);
         emit IPoolShare.Withdraw(user, user, user, assetAmount, 0);
         vm.expectEmit(true, true, true, true, principalToken);
@@ -398,8 +400,8 @@ contract CorkPoolTest is Helper {
         (uint256 shares, uint256 compensation, uint256 fee) = corkPool.swap(marketId, assetAmount, user);
         vm.stopPrank();
 
-        assertGt(shares, 0, "Should provide CST shares");
-        assertGt(compensation, 0, "Should require reference asset compensation");
+        assertEq(shares, expectedShares, "Should provide CST shares");
+        assertEq(compensation, expectedCompensation, "Should require reference asset compensation");
     }
 
     function test_swap_ShouldRevert_WhenZeroAmount() external {
@@ -579,7 +581,7 @@ contract CorkPoolTest is Helper {
         vm.expectEmit(true, true, false, true);
         emit IPoolManager.PoolSwap(marketId, user, user, expectedAssetIn, expectedCompensation, 0, 0, true);
         vm.expectEmit(true, true, true, true, address(corkPool));
-        emit IPoolManager.PoolFee(marketId, user, 505_044_600_445_525_119, 0);
+        emit IPoolManager.PoolFee(marketId, user, 505_044_600_445_525_120, 0);
         vm.expectEmit(true, true, false, true, principalToken);
         emit IPoolShare.Deposit(user, user, expectedAssetIn, 0);
         vm.expectEmit(true, true, false, true, principalToken);
@@ -1649,16 +1651,16 @@ contract CorkPoolTest is Helper {
     }
 
     function test_marketDetails_ShouldReturnCorrectDetails() external {
-        (address refAsset, address collAsset, uint256 expiryTime, address rateOracle, uint256 rateMin, uint256 rateMax, uint256 rateChangePerDayMax, uint256 rateChangeCapacityMax) = corkPool.marketDetails(marketId);
+        Market memory market = corkPool.market(marketId);
 
-        assertEq(refAsset, address(referenceAsset), "Reference asset should match");
-        assertEq(collAsset, address(collateralAsset), "Collateral asset should match");
-        assertGt(expiryTime, block.timestamp, "Should have future expiry");
-        assertEq(rateOracle, address(testOracle), "Oracle should match");
-        assertEq(rateMin, DEFAULT_RATE_MIN, "rateMin should match");
-        assertEq(rateMax, DEFAULT_RATE_MAX, "rateMax should match");
-        assertEq(rateChangePerDayMax, DEFAULT_RATE_CHANGE_PER_DAY_MAX, "rateChangePerDayMax should match");
-        assertEq(rateChangeCapacityMax, DEFAULT_RATE_CHANGE_CAPACITY_MAX, "rateChangeCapacityMax should match");
+        assertEq(market.referenceAsset, address(referenceAsset), "Reference asset should match");
+        assertEq(market.collateralAsset, address(collateralAsset), "Collateral asset should match");
+        assertGt(market.expiryTimestamp, block.timestamp, "Should have future expiry");
+        assertEq(market.rateOracle, address(testOracle), "Oracle should match");
+        assertEq(market.rateMin, DEFAULT_RATE_MIN, "rateMin should match");
+        assertEq(market.rateMax, DEFAULT_RATE_MAX, "rateMax should match");
+        assertEq(market.rateChangePerDayMax, DEFAULT_RATE_CHANGE_PER_DAY_MAX, "rateChangePerDayMax should match");
+        assertEq(market.rateChangeCapacityMax, DEFAULT_RATE_CHANGE_CAPACITY_MAX, "rateChangeCapacityMax should match");
     }
 
     function test_underlyingAsset_ShouldReturnCorrectAssets() external {
@@ -1675,8 +1677,8 @@ contract CorkPoolTest is Helper {
     }
 
     function test_expiry_ShouldReturnCorrectExpiry() external {
-        uint256 expiryTime = corkPool.expiry(marketId);
-        assertGt(expiryTime, block.timestamp, "Should have future expiry");
+        Market memory market = corkPool.market(marketId);
+        assertGt(market.expiryTimestamp, block.timestamp, "Should have future expiry");
     }
 
     function test_swapRate_ShouldReturnValidRate() external {
@@ -1694,25 +1696,6 @@ contract CorkPoolTest is Helper {
 
         assertGt(collateralLocked, 0, "Should have collateral locked");
         // referenceLocked might be 0 initially
-    }
-
-    function test_availableForUnwindSwap_ShouldReturnCorrectAmounts() external {
-        // Setup some liquidity
-        vm.startPrank(user);
-        collateralAsset.approve(address(corkPool), 1000 ether);
-        referenceAsset.approve(address(corkPool), 1000 ether);
-        corkPool.deposit(marketId, 500 ether, currentCaller());
-        corkPool.swap(marketId, 100 ether, user);
-        vm.stopPrank();
-
-        (uint256 referenceAvailable, uint256 swapAvailable) = corkPool.availableForUnwindSwap(marketId);
-        assertGt(referenceAvailable, 0, "Should have reference asset available");
-        assertGt(swapAvailable, 0, "Should have swap tokens available");
-    }
-
-    function test_unwindSwapRate_ShouldReturnValidRate() external {
-        uint256 rate = corkPool.unwindSwapRate(marketId);
-        assertGt(rate, 0, "Rats should be positive");
     }
 
     // ================================ Complex Integration Tests ================================ //

@@ -72,7 +72,7 @@ library MathHelper {
 
         uint256 feeFactor = (_baseFeePercentage * t) / 1e18;
 
-        uint256 withFee = _amount.mulDiv(100e18, (100e18 - feeFactor));
+        uint256 withFee = _amount.mulDiv(100e18, (100e18 - feeFactor), Math.Rounding.Ceil);
 
         _assetIn = withFee;
         _fee = (_assetIn - _amount);
@@ -83,9 +83,9 @@ library MathHelper {
 
         uint256 t = computeT(_start, _end, _current);
 
-        uint256 feeFactor = (_baseFeePercentage * t);
+        uint256 feeFactor = (_baseFeePercentage * t) / 1e18;
 
-        _fee = _amount.mulDiv(feeFactor, 100e18, Math.Rounding.Floor) / 1e18;
+        _fee = _amount.mulDiv(feeFactor, 100e18, Math.Rounding.Ceil);
     }
 
     /// @notice calculate the required shares needed to get a specific amount of assets
@@ -106,6 +106,6 @@ library MathHelper {
         // grossAmount = desiredAmount ÷ (1 - feeRate)
         // So grossAmount = (desiredAmount * 100e18)÷ (100e18 - rate in 100e18)
         // Where rate in 100e18 means => 1% = 1e18
-        grossAmount = desiredAmount.mulDiv(100e18, 100e18 - feeRate, Math.Rounding.Floor);
+        grossAmount = desiredAmount.mulDiv(100e18, 100e18 - feeRate, Math.Rounding.Ceil);
     }
 }

@@ -129,26 +129,6 @@ contract SharesTest is Helper {
     }
     //-----------------------------------------------------------------------------------------------------//
 
-    //---------------------------------- SetMarketId ----------------------------------//
-    function test_SetMarketIdShouldRevertWhenCalledByNonFactory() external {
-        vm.startPrank(user1);
-        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, user1));
-        share.setPoolId(poolId);
-        vm.stopPrank();
-    }
-
-    function test_SetMarketIdShouldWorkCorrectly() external {
-        assertFalse(MarketId.unwrap(share.poolId()) == MarketId.unwrap(poolId));
-
-        vm.startPrank(DEFAULT_ADDRESS);
-        share.setPoolId(poolId);
-        vm.stopPrank();
-
-        // Compare MarketId values directly
-        assertTrue(MarketId.unwrap(share.poolId()) == MarketId.unwrap(poolId));
-    }
-    // ----------------------------------------------------------------------------------------------------//
-
     //------------------------------------------------- Mint -------------------------------------------------//
     function test_MintShouldRevertWhenCalledByNonOwner() external {
         vm.startPrank(DEFAULT_ADDRESS);

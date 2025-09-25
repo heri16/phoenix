@@ -213,14 +213,6 @@ contract CorkPoolTest is Helper {
         vm.assertEq(rate, defaultSwapRate(), "Swap rate should match default");
     }
 
-    function test_availableForUnwindSwap() public {
-        corkPool.deposit(defaultCurrencyId, 1 ether, currentCaller());
-
-        (uint256 _referenceAsset, uint256 swapToken) = corkPool.availableForUnwindSwap(defaultCurrencyId);
-        vm.assertEq(_referenceAsset, 0);
-        vm.assertEq(swapToken, 0);
-    }
-
     function defaultSwapRate() internal pure returns (uint256) {
         return 1.0 ether;
     }

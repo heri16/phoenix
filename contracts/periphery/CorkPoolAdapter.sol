@@ -37,8 +37,8 @@ contract CorkPoolAdapter is GeneralAdapter, ICorkPoolAdapter {
         require(params.receiver != address(0), ErrorsLib.ZeroAddress());
         require(params.shares != 0, ErrorsLib.ZeroShares());
 
-        (address _collateralAsset,) = CORK.underlyingAsset(params.poolId);
-        IERC20 collateralAsset = IERC20(_collateralAsset);
+        Market memory market = CORK.market(params.poolId);
+        IERC20 collateralAsset = IERC20(market.collateralAsset);
 
         SafeERC20.forceApprove(collateralAsset, address(CORK), type(uint256).max);
 
@@ -63,8 +63,8 @@ contract CorkPoolAdapter is GeneralAdapter, ICorkPoolAdapter {
         require(params.receiver != address(0), ErrorsLib.ZeroAddress());
         require(params.assets != 0, ErrorsLib.ZeroAmount());
 
-        (address _collateralAsset,) = CORK.underlyingAsset(params.poolId);
-        IERC20 collateralAsset = IERC20(_collateralAsset);
+        Market memory market = CORK.market(params.poolId);
+        IERC20 collateralAsset = IERC20(market.collateralAsset);
 
         SafeERC20.forceApprove(collateralAsset, address(CORK), type(uint256).max);
 
@@ -97,8 +97,8 @@ contract CorkPoolAdapter is GeneralAdapter, ICorkPoolAdapter {
         IERC20 cpt;
         IERC20 cst;
         {
-            (address _collateralAsset,) = CORK.underlyingAsset(params.poolId);
-            collateralAsset = IERC20(_collateralAsset);
+            Market memory market = CORK.market(params.poolId);
+            IERC20 collateralAsset = IERC20(market.collateralAsset);
 
             (address principalToken, address swapToken) = CORK.shares(params.poolId);
             cpt = IERC20(principalToken);
@@ -138,8 +138,8 @@ contract CorkPoolAdapter is GeneralAdapter, ICorkPoolAdapter {
         IERC20 cpt;
         IERC20 cst;
         {
-            (address _collateralAsset,) = CORK.underlyingAsset(params.poolId);
-            collateralAsset = IERC20(_collateralAsset);
+            Market memory market = CORK.market(params.poolId);
+            IERC20 collateralAsset = IERC20(market.collateralAsset);
 
             (address principalToken, address swapToken) = CORK.shares(params.poolId);
             cpt = IERC20(principalToken);
@@ -179,7 +179,7 @@ contract CorkPoolAdapter is GeneralAdapter, ICorkPoolAdapter {
     /// params.receiver The address to which withdrawn assets will be sent
     /// params.maxSharesIn The maximum amount of CPT shares to burn for the withdrawal
     /// params.deadline The deadline by which the transaction must be completed
-    function safeWithdraw(SafeWithdrawParams memory params) external onlyBundler3 {
+    function safeWithdraw(SafeWithdrawParams calldata params) external onlyBundler3 {
         require(block.timestamp <= params.deadline, ErrorsLib.DeadlineExceeded());
         require(params.receiver != address(0), ErrorsLib.ZeroAddress());
         require(params.owner == address(this) || params.owner == initiator(), ErrorsLib.UnexpectedOwner());
@@ -192,9 +192,9 @@ contract CorkPoolAdapter is GeneralAdapter, ICorkPoolAdapter {
         IERC20 referenceAsset;
         IERC20 cpt;
         {
-            (address _collateralAsset, address _referenceAsset) = CORK.underlyingAsset(params.poolId);
-            collateralAsset = IERC20(_collateralAsset);
-            referenceAsset = IERC20(_referenceAsset);
+            Market memory market = CORK.market(params.poolId);
+            collateralAsset = IERC20(market.collateralAsset);
+            referenceAsset = IERC20(market.referenceAsset);
 
             (address principalToken,) = CORK.shares(params.poolId);
             cpt = IERC20(principalToken);
@@ -260,8 +260,8 @@ contract CorkPoolAdapter is GeneralAdapter, ICorkPoolAdapter {
         require(block.timestamp <= params.deadline, ErrorsLib.DeadlineExceeded());
         require(params.receiver != address(0), ErrorsLib.ZeroAddress());
 
-        (address _collateralAsset,) = CORK.underlyingAsset(params.poolId);
-        IERC20 collateralAsset = IERC20(_collateralAsset);
+        Market memory market = CORK.market(params.poolId);
+        IERC20 collateralAsset = IERC20(market.collateralAsset);
 
         if (params.collateralAssets == type(uint256).max) params.collateralAssets = collateralAsset.balanceOf(address(this));
 
@@ -289,7 +289,7 @@ contract CorkPoolAdapter is GeneralAdapter, ICorkPoolAdapter {
     /// params.maxCstSharesIn The maximum amount of CST shares to spend for the swap
     /// params.maxReferenceAssetsIn The maximum amount of reference token compensation to spend for the swap
     /// params.deadline The deadline by which the transaction must be completed
-    function safeSwap(SafeSwapParams memory params) external onlyBundler3 {
+    function safeSwap(SafeSwapParams calldata params) external onlyBundler3 {
         require(block.timestamp <= params.deadline, ErrorsLib.DeadlineExceeded());
         require(params.receiver != address(0), ErrorsLib.ZeroAddress());
         require(params.owner == address(this) || params.owner == initiator(), ErrorsLib.UnexpectedOwner());
@@ -298,8 +298,8 @@ contract CorkPoolAdapter is GeneralAdapter, ICorkPoolAdapter {
         IERC20 referenceAsset;
         IERC20 cst;
         {
-            (, address _referenceAsset) = CORK.underlyingAsset(params.poolId);
-            referenceAsset = IERC20(_referenceAsset);
+            Market memory market = CORK.market(params.poolId);
+            referenceAsset = IERC20(market.referenceAsset);
 
             (, address swapToken) = CORK.shares(params.poolId);
             cst = IERC20(swapToken);
@@ -331,7 +331,7 @@ contract CorkPoolAdapter is GeneralAdapter, ICorkPoolAdapter {
     /// params.minCollateralAssetsOut The minimum amount of collateral assets to receive
     /// params.maxOtherTokenIn The maximum amount of other asset that can be spent
     /// params.deadline The deadline by which the transaction must be completed
-    function safeExercise(SafeExerciseParams memory params) external onlyBundler3 {
+    function safeExercise(SafeExerciseParams calldata params) external onlyBundler3 {
         require(block.timestamp <= params.deadline, ErrorsLib.DeadlineExceeded());
         require(params.receiver != address(0), ErrorsLib.ZeroAddress());
         require(params.owner == address(this) || params.owner == initiator(), ErrorsLib.UnexpectedOwner());
@@ -343,8 +343,8 @@ contract CorkPoolAdapter is GeneralAdapter, ICorkPoolAdapter {
         IERC20 referenceAsset;
         IERC20 cst;
         {
-            (, address _referenceAsset) = CORK.underlyingAsset(params.poolId);
-            referenceAsset = IERC20(_referenceAsset);
+            Market memory market = CORK.market(params.poolId);
+            referenceAsset = IERC20(market.referenceAsset);
 
             (, address swapToken) = CORK.shares(params.poolId);
             cst = IERC20(swapToken);
@@ -372,12 +372,12 @@ contract CorkPoolAdapter is GeneralAdapter, ICorkPoolAdapter {
     /// params.minReferenceAssetsOut The minimum amount of reference token compensation to receive
     /// params.maxCollateralAssetsIn The maximum amount of collateral assets to spend for the unwind exercise
     /// params.deadline The deadline by which the transaction must be completed
-    function safeUnwindExercise(SafeUnwindExerciseParams memory params) external onlyBundler3 {
+    function safeUnwindExercise(SafeUnwindExerciseParams calldata params) external onlyBundler3 {
         require(block.timestamp <= params.deadline, ErrorsLib.DeadlineExceeded());
         require(params.receiver != address(0), ErrorsLib.ZeroAddress());
 
-        (address _collateralAsset,) = CORK.underlyingAsset(params.poolId);
-        IERC20 collateralAsset = IERC20(_collateralAsset);
+        Market memory market = CORK.market(params.poolId);
+        IERC20 collateralAsset = IERC20(market.collateralAsset);
 
         require(params.shares != 0, ErrorsLib.ZeroShares());
 

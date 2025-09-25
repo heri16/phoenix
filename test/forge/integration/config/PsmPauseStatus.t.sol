@@ -2,6 +2,7 @@ pragma solidity ^0.8.30;
 
 import {IErrors} from "contracts/interfaces/IErrors.sol";
 import {IPoolManager} from "contracts/interfaces/IPoolManager.sol";
+import {Market} from "contracts/libraries/Market.sol";
 import {Helper} from "test/forge/Helper.sol";
 
 contract CorkPoolPauseStatusIntegrationTest is Helper {
@@ -21,7 +22,8 @@ contract CorkPoolPauseStatusIntegrationTest is Helper {
 
     function test_PauseWithdrawStatus_blocksWithdrawal() public {
         corkConfig.pauseWithdrawals(defaultCurrencyId);
-        uint256 expiry = corkPool.expiry(defaultCurrencyId);
+        Market memory market = corkPool.market(defaultCurrencyId);
+        uint256 expiry = market.expiryTimestamp;
 
         vm.warp(expiry + 1);
 

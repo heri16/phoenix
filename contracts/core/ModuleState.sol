@@ -28,23 +28,9 @@ abstract contract ModuleState is IErrors, ReentrancyGuardTransient, Extsload {
     // keccak256(abi.encode(uint256(keccak256("cork.storage.ModuleState")) - 1)) & ~bytes32(uint256(0xff)) = 0x0f7db58ac1e2c527c1cd5fdc0769579505d2274a0d47c6ed16fd32c06f09dd00
     bytes32 private constant _MODULE_STATE_STORAGE_POSITION = 0x0f7db58ac1e2c527c1cd5fdc0769579505d2274a0d47c6ed16fd32c06f09dd00;
 
-    function data() internal pure returns (ModuleStateStorage storage ms) {
-        assembly {
-            ms.slot := _MODULE_STATE_STORAGE_POSITION
-        }
-    }
-
-    /**
-     * @dev checks if caller is config contract or not
-     */
-    function onlyConfig() internal view {
-        require(msg.sender == data().CONFIG, OnlyConfigAllowed());
-    }
-
-    /// @notice returns the address of the shares factory
-    function factory() external view returns (address) {
-        return data().SHARES_FACTORY;
-    }
+    ///======================================================///
+    ///================= INITIALIZATION FUNCTIONS ===========///
+    ///======================================================///
 
     /// @notice initializes the module state
     function initializeModuleState(address sharesFactory, address config, address constraintAdapter) internal {
@@ -56,6 +42,15 @@ abstract contract ModuleState is IErrors, ReentrancyGuardTransient, Extsload {
         ms.CONSTRAINT_ADAPTER = constraintAdapter;
     }
 
+    ///======================================================///
+    ///================= VIEW FUNCTIONS =====================///
+    ///======================================================///
+
+    /// @notice returns the address of the shares factory
+    function factory() external view returns (address) {
+        return data().SHARES_FACTORY;
+    }
+
     /// @notice returns the address of the treasury
     function getTreasuryAddress() public view returns (address) {
         return CorkConfig(data().CONFIG).treasury();
@@ -63,6 +58,23 @@ abstract contract ModuleState is IErrors, ReentrancyGuardTransient, Extsload {
 
     function getConstraintAdapter() public view returns (address) {
         return data().CONSTRAINT_ADAPTER;
+    }
+
+    ///======================================================///
+    ///================= INTERNAL FUNCTIONS =================///
+    ///======================================================///
+
+    function data() internal pure returns (ModuleStateStorage storage ms) {
+        assembly {
+            ms.slot := _MODULE_STATE_STORAGE_POSITION
+        }
+    }
+
+    /**
+     * @dev checks if caller is config contract or not
+     */
+    function onlyConfig() internal view {
+        require(msg.sender == data().CONFIG, OnlyConfigAllowed());
     }
 
     function onlyInitialized(MarketId id) internal view {

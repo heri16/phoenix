@@ -58,21 +58,6 @@ interface IUnwindSwap is IErrors {
     function unwindSwap(MarketId id, uint256 amount, address receiver) external returns (UnwindSwapReturnParams memory returnParams);
 
     /**
-     * @notice return the amount of available Reference Asset and Swap Token to purchase.
-     * @param id the id of Cork Pool
-     * @return referenceAsset the amount of Reference Asset available
-     * @return swapToken the amount of Swap Token available
-     */
-    function availableForUnwindSwap(MarketId id) external view returns (uint256 referenceAsset, uint256 swapToken);
-
-    /**
-     * @notice returns the unwindSwap rate for a given Swap Token
-     * @param id the id of Cork Pool
-     * @return rate the unwindSwap rate for a given Swap Token
-     */
-    function unwindSwapRate(MarketId id) external view returns (uint256 rate);
-
-    /**
      * @notice Returns the maximum amount of assets that could be transferred through `unwindSwap` and not cause a revert.
      * @dev MUST return the maximum amount of assets that could be transferred through `unwindSwap` and not cause a revert, which MUST NOT be higher than the actual maximum that would be accepted (it should underestimate if necessary).
      * @dev MUST factor in both global and user-specific limits, for example, global caps and available balance of CST to repurchase. MUST factor in other restrictive conditions, like if reverse-swaps (i.e. repurchase) are entirely disabled (even temporarily) it MUST return 0.

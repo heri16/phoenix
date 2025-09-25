@@ -34,44 +34,17 @@ contract SharesFactory is ISharesFactory, OwnableUpgradeable, UUPSUpgradeable {
     // keccak256(abi.encode(uint256(keccak256("cork.storage.SharesFactory")) - 1)) & ~bytes32(uint256(0xff))
     bytes32 private constant _SHARES_FACTORY_STORAGE_POSITION = 0xae1bdbe81317319de75cce51dab9288f0dd5d17842126825ac85236faa7ace00;
 
-    function data() internal pure returns (SharesFactoryStorage storage fs) {
-        assembly {
-            fs.slot := _SHARES_FACTORY_STORAGE_POSITION
-        }
-    }
-
-    constructor() {
-        _disableInitializers();
-    }
-
-    /**
-     * @dev will generate symbol such as wstETH03CPT.
-     * @param collateralAsset The address of the Collateral Asset token.
-     * @param referenceAsset The address of the Reference Asset token.
-     * @param expiry The expiry date in Unix timestamp format.
-     * @param prefix The prefix to be added to the symbol.
-     * @return name The generated name with the variant.
-     * @return symbol The generated symbol with the variant.
-     */
-    function _generateSymbolWithVariant(address collateralAsset, address referenceAsset, uint256 expiry, string memory prefix) internal view returns (string memory name, string memory symbol) {
-        string memory referenceSymbol = IERC20Metadata(referenceAsset).symbol();
-        string memory month = Strings.toString(BokkyPooBahsDateTimeLibrary.getMonth(expiry));
-
-        name = string.concat(IERC20Metadata(collateralAsset).symbol(), "-", referenceSymbol, month, prefix);
-        symbol = string.concat(referenceSymbol, month, prefix);
-    }
-
-    /**
-     * @notice for safety checks in pool, also act as kind of like a registry
-     * @param share the address of PoolShare contract
-     */
-    function isDeployed(address share) external view override returns (bool) {
-        return data().deployed[share];
-    }
-
     modifier onlyCorkPool() {
         require(data().corkPool == msg.sender, NotCorkPool());
         _;
+    }
+
+    ///======================================================///
+    ///============== INITIALIZATION FUNCTIONS ==============///
+    ///======================================================///
+
+    constructor() {
+        _disableInitializers();
     }
 
     /**
@@ -82,17 +55,9 @@ contract SharesFactory is ISharesFactory, OwnableUpgradeable, UUPSUpgradeable {
         __UUPSUpgradeable_init();
     }
 
-    /**
-     * @notice for getting deployed SwapShare for given parameters with this factory
-     * @param poolId id of the pool
-     * @return principalToken deployed Principal Token shares
-     * @return swapToken deployed Swap Token shares
-     */
-    function poolShares(MarketId poolId) external view override returns (address principalToken, address swapToken) {
-        SwapPair memory _shares = data().swapShares[poolId];
-        principalToken = _shares.principalToken;
-        swapToken = _shares.swapToken;
-    }
+    ///======================================================///
+    ///================== CORE FUNCTIONS ====================///
+    ///======================================================///
 
     /**
      * @notice Deploys new swap shares based on the provided parameters.
@@ -120,8 +85,9 @@ contract SharesFactory is ISharesFactory, OwnableUpgradeable, UUPSUpgradeable {
         emit SharesDeployed(params.poolParams.collateralAsset, principalToken, swapToken);
     }
 
-    // solhint-disable-next-line no-empty-blocks
-    function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}
+    ///======================================================///
+    ///============== ADMINISTRATIVE FUNCTIONS ==============///
+    ///======================================================///
 
     /**
      * @notice Sets the CorkPool contract address for the factory contract.
@@ -136,11 +102,65 @@ contract SharesFactory is ISharesFactory, OwnableUpgradeable, UUPSUpgradeable {
         emit CorkPoolChanged(oldCorkPool, _corkPool);
     }
 
+    ///======================================================///
+    ///================== VIEW FUNCTIONS ====================///
+    ///======================================================///
+
     /**
      * @notice Returns the address of the CorkPool contract
      * @return The address of the CorkPool contract
      */
     function corkPool() external view returns (address) {
         return data().corkPool;
+    }
+
+    /**
+     * @notice for safety checks in pool, also act as kind of like a registry
+     * @param share the address of PoolShare contract
+     */
+    function isDeployed(address share) external view override returns (bool) {
+        return data().deployed[share];
+    }
+
+    /**
+     * @notice for getting deployed SwapShare for given parameters with this factory
+     * @param poolId id of the pool
+     * @return principalToken deployed Principal Token shares
+     * @return swapToken deployed Swap Token shares
+     */
+    function poolShares(MarketId poolId) external view override returns (address principalToken, address swapToken) {
+        SwapPair memory _shares = data().swapShares[poolId];
+        principalToken = _shares.principalToken;
+        swapToken = _shares.swapToken;
+    }
+
+    ///======================================================///
+    ///================= INTERNAL FUNCTIONS =================///
+    ///======================================================///
+
+    // solhint-disable-next-line no-empty-blocks
+    function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}
+
+    function data() internal pure returns (SharesFactoryStorage storage fs) {
+        assembly {
+            fs.slot := _SHARES_FACTORY_STORAGE_POSITION
+        }
+    }
+
+    /**
+     * @dev will generate symbol such as wstETH03CPT.
+     * @param collateralAsset The address of the Collateral Asset token.
+     * @param referenceAsset The address of the Reference Asset token.
+     * @param expiry The expiry date in Unix timestamp format.
+     * @param prefix The prefix to be added to the symbol.
+     * @return name The generated name with the variant.
+     * @return symbol The generated symbol with the variant.
+     */
+    function _generateSymbolWithVariant(address collateralAsset, address referenceAsset, uint256 expiry, string memory prefix) internal view returns (string memory name, string memory symbol) {
+        string memory referenceSymbol = IERC20Metadata(referenceAsset).symbol();
+        string memory month = Strings.toString(BokkyPooBahsDateTimeLibrary.getMonth(expiry));
+
+        name = string.concat(IERC20Metadata(collateralAsset).symbol(), "-", referenceSymbol, month, prefix);
+        symbol = string.concat(referenceSymbol, month, prefix);
     }
 }

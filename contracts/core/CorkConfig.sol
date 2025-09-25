@@ -22,6 +22,10 @@ contract CorkConfig is AccessControl, Pausable, IConfig {
     // instead of storing it themselves, since it'll be hard to update the treasury address in all the components if it changes vs updating it in the config contract once
     address public treasury;
 
+    ///======================================================///
+    ///===================== CONSTRUCTOR ====================///
+    ///======================================================///
+
     constructor(address admin, address pauser, address poolCreator) {
         require(admin != address(0) && poolCreator != address(0), InvalidAddress());
 
@@ -29,6 +33,10 @@ contract CorkConfig is AccessControl, Pausable, IConfig {
         _grantRole(PAUSER_ROLE, pauser);
         _grantRole(POOL_CREATOR_ROLE, poolCreator);
     }
+
+    ///======================================================///
+    ///================== ROLES FUNCTIONS ===================///
+    ///======================================================///
 
     function grantRole(bytes32 role, address account) public override onlyRole(DEFAULT_ADMIN_ROLE) {
         require(!hasRole(role, account), InvalidAddress());
@@ -46,6 +54,10 @@ contract CorkConfig is AccessControl, Pausable, IConfig {
         _grantRole(DEFAULT_ADMIN_ROLE, newAdmin);
     }
 
+    ///======================================================///
+    ///=================== SETUP FUNCTIONS ==================///
+    ///======================================================///
+
     /// @inheritdoc IConfig
     function setCorkPool(address _corkPool) external onlyRole(DEFAULT_ADMIN_ROLE) {
         require(_corkPool != address(0), InvalidAddress());
@@ -60,10 +72,18 @@ contract CorkConfig is AccessControl, Pausable, IConfig {
         emit TreasurySet(_treasury);
     }
 
+    ///======================================================///
+    ///================ POOL DEPLOYMENT FUNCTIONS ===========///
+    ///======================================================///
+
     /// @inheritdoc IConfig
     function createNewPool(Market calldata poolParams) external whenNotPaused onlyRole(POOL_CREATOR_ROLE) {
         corkPool.createNewPool(poolParams);
     }
+
+    ///======================================================///
+    ///================= FEE RELATED FUNCTIONS ==============///
+    ///======================================================///
 
     /// @inheritdoc IConfig
     function updateUnwindSwapFeeRate(MarketId id, uint256 newUnwindSwapFeePercentage) external onlyRole(DEFAULT_ADMIN_ROLE) {
@@ -75,6 +95,9 @@ contract CorkConfig is AccessControl, Pausable, IConfig {
         corkPool.updateBaseRedemptionFeePercentage(id, newBaseRedemptionFeePercentage);
     }
 
+    ///======================================================///
+    ///================ ADMINISTRATIVE FUNCTIONS ============///
+    ///======================================================///
     /// @inheritdoc IConfig
     function pause() external onlyRole(PAUSER_ROLE) {
         _pause();

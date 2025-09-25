@@ -28,19 +28,9 @@ library PoolLibrary {
      */
     uint256 internal constant MAX_ALLOWED_FEES = 5 ether;
 
-    // Core functions
-    function isInitialized(State storage self) public view returns (bool status) {
-        status = self.info.referenceAsset != address(0) && self.info.collateralAsset != address(0);
-    }
-
-    function _getLatestApplicableRate(MarketId poolId, address constraintAdapter) internal view returns (uint256 rate) {
-        return ConstraintAdapter(constraintAdapter).previewAdjustedRate(poolId);
-    }
-
-    // fetch and update the swap rate.
-    function _getLatestApplicableRateAndUpdate(State storage self, MarketId poolId, address constraintAdapter) internal returns (uint256 rate) {
-        rate = ConstraintAdapter(constraintAdapter).adjustedRate(poolId);
-    }
+    ///======================================================///
+    ///================ INITIALIZATION FUNCTIONS ============///
+    ///======================================================///
 
     function initialize(State storage self, MarketId poolId, Market calldata market, address constraintAdapter) external {
         self.info = market;
@@ -49,138 +39,9 @@ library PoolLibrary {
         ConstraintAdapter(constraintAdapter).bootstrap(poolId);
     }
 
-    function availableForUnwindSwap(State storage self) external view returns (uint256 referenceAsset, uint256 shares) {
-        Shares storage _swapToken = self.shares;
-        Guard.safeBeforeExpired(_swapToken);
-
-        referenceAsset = self.pool.balances.referenceAssetBalance;
-        shares = self.pool.balances.swapTokenBalance;
-    }
-
-    function unwindSwapRate(State storage self, MarketId poolId, address constraintAdapter) external view returns (uint256 rate) {
-        Shares storage tokens = self.shares;
-        Guard.safeBeforeExpired(tokens);
-
-        rate = _getLatestApplicableRate(poolId, constraintAdapter);
-    }
-
-    function unwindSwapFeePercentage(State storage self) external view returns (uint256 rate) {
-        rate = self.pool.unwindSwapFeePercentage;
-    }
-
-    function updateUnwindSwapFeePercentage(State storage self, uint256 newFees) external {
-        require(newFees <= MAX_ALLOWED_FEES, IErrors.InvalidFees());
-        self.pool.unwindSwapFeePercentage = newFees;
-    }
-
-    function valueLocked(State storage self, bool collateralAsset) external view returns (uint256) {
-        if (collateralAsset) return self.pool.balances.collateralAsset.locked + self.pool.poolArchive.collateralAssetAccrued;
-        else return self.pool.balances.referenceAssetBalance + self.pool.poolArchive.referenceAssetAccrued;
-    }
-
-    function swapRate(State storage self, MarketId poolId, address constraintAdapter) external view returns (uint256 rate) {
-        rate = _getLatestApplicableRate(poolId, constraintAdapter);
-    }
-
-    function previewExercise(State storage self, MarketId poolId, uint256 shares, uint256 compensation, address constraintAdapter) internal view returns (uint256 assets, uint256 otherAssetSpent, uint256 fee, uint256 swapTokenProvided, uint256 referenceAssetProvided) {
-        // Either shares or compensation MUST be 0
-        if ((shares == 0 && compensation == 0) || (shares != 0 && compensation != 0)) return (0, 0, 0, 0, 0);
-        if (_isExpired(self)) return (0, 0, 0, 0, 0);
-
-        Shares storage tokens = self.shares;
-        uint256 _swapRate = _getLatestApplicableRate(poolId, constraintAdapter);
-
-        // Calculate amounts based on mode (shares > 0 = shares mode, otherwise compensation mode)
-        // we need to provide swap token = compensation x swapRate
-        // or we need to provide compensation = swap token / swapRate
-        swapTokenProvided = shares > 0 ? shares : MathHelper.calculateEqualSwapAmount(TransferHelper.tokenNativeDecimalsToFixed(compensation, self.referenceDecimals), _swapRate);
-        referenceAssetProvided = shares > 0 ? TransferHelper.fixedToTokenNativeDecimals(MathHelper.calculateDepositAmountWithSwapRate(swapTokenProvided, _swapRate, true), self.referenceDecimals) : compensation;
-
-        // Calculate collateral asset output (same calculation for both modes)
-        uint256 assetsBeforeFee = TransferHelper.fixedToTokenNativeDecimals(swapTokenProvided, self.collateralDecimals);
-
-        // Other asset spent is the non-primary asset (reference asset in shares mode, CST in compensation mode)
-        otherAssetSpent = shares > 0 ? referenceAssetProvided : swapTokenProvided;
-
-        // Calculate fee and final assets
-        fee = MathHelper.calculatePercentageFee(self.pool.baseRedemptionFeePercentage, assetsBeforeFee);
-        assets = assetsBeforeFee - fee;
-    }
-
-    /// @notice return the next depeg swap expiry
-    function nextExpiry(State storage self) external view returns (uint256 expiry) {
-        Shares storage tokens = self.shares;
-
-        expiry = PoolShare(tokens.swap).expiry();
-    }
-
-    function _calcSwapAmount(State storage self, uint256 amount, uint256 totalPrincipalTokenIssued, uint256 availableCollateralAsset, uint256 availableReferenceAsset) internal view returns (uint256 accruedReferenceAsset, uint256 accruedCollateralAsset) {
-        accruedReferenceAsset = MathHelper.calculateAccrued(amount, availableReferenceAsset, totalPrincipalTokenIssued);
-        accruedCollateralAsset = MathHelper.calculateAccrued(amount, availableCollateralAsset, totalPrincipalTokenIssued);
-    }
-
-    function updateBaseRedemptionFeePercentage(State storage self, uint256 newFees) external {
-        require(newFees <= MAX_ALLOWED_FEES, IErrors.InvalidFees());
-        self.pool.baseRedemptionFeePercentage = newFees;
-    }
-
-    function previewUnwindSwap(State storage self, MarketId poolId, uint256 amount, address constraintAdapter) public view returns (IUnwindSwap.UnwindSwapReturnParams memory returnParams) {
-        Shares storage tokens = self.shares;
-
-        if (amount == 0) {
-            returnParams.feePercentage = self.pool.unwindSwapFeePercentage;
-            return returnParams;
-        }
-        if (_isExpired(self)) return returnParams;
-
-        returnParams.swapRate = _getLatestApplicableRate(poolId, constraintAdapter);
-
-        returnParams.feePercentage = self.pool.unwindSwapFeePercentage;
-
-        // the fee is taken directly from Collateral Asset before it's even converted to Swap Token
-        {
-            PoolShare _swapToken = PoolShare(tokens.swap);
-            returnParams.fee = MathHelper.calculateTimeDecayFee(_swapToken.issuedAt(), _swapToken.expiry(), block.timestamp, amount, returnParams.feePercentage);
-        }
-
-        amount = amount - returnParams.fee;
-        amount = TransferHelper.tokenNativeDecimalsToFixed(amount, self.collateralDecimals);
-
-        // we use deposit here because technically the user deposit Collateral Asset to the Cork Pool when unwinding, except with swap rate applied
-        returnParams.receivedReferenceAsset = MathHelper.calculateDepositAmountWithSwapRate(amount, returnParams.swapRate, false);
-        returnParams.receivedReferenceAsset = TransferHelper.fixedToTokenNativeDecimals(returnParams.receivedReferenceAsset, self.referenceDecimals);
-        returnParams.receivedSwapToken = amount;
-
-        require(returnParams.receivedReferenceAsset <= self.pool.balances.referenceAssetBalance, IErrors.InsufficientLiquidity(self.pool.balances.referenceAssetBalance, returnParams.receivedReferenceAsset));
-
-        require(returnParams.receivedSwapToken <= self.pool.balances.swapTokenBalance, IErrors.InsufficientLiquidity(amount, self.pool.balances.swapTokenBalance));
-    }
-
-    function previewSwap(State storage self, MarketId poolId, uint256 assets, address constraintAdapter) public view returns (uint256 sharesOut, uint256 compensation, uint256 fee) {
-        Shares storage _swapToken = self.shares;
-
-        if (assets == 0) return (0, 0, 0);
-        if (_isExpired(self)) return (0, 0, 0);
-
-        uint256 exchangeRates = _getLatestApplicableRate(poolId, constraintAdapter);
-
-        // Calculate gross collateral amount needed before fee deduction
-        uint256 assetsFixed = TransferHelper.tokenNativeDecimalsToFixed(assets, self.collateralDecimals);
-        uint256 grossCollateralAsset = MathHelper.calculateGrossAmountBeforeFee(assetsFixed, self.pool.baseRedemptionFeePercentage);
-
-        // Convert gross collateral to fixed decimals to get CST shares needed
-        sharesOut = grossCollateralAsset;
-        // fee in collateral assets. we basically mark up how much shares and compensation user should provide us in exchange for exact amount they requested.
-        // but in reality there's a leftover collateral that hasn't been distributed
-        // imagine : rate = 1, fee = 5%
-        // 1. user provide ~1.052 shares and compensation with exact amount = 1
-        // 2. user should get ~1.052 collateral but they get 1. ~0.052 collateral assets goes to treasury!
-        fee = TransferHelper.fixedToTokenNativeDecimalsWithCeilDiv(grossCollateralAsset - assetsFixed, self.collateralDecimals);
-
-        // Calculate required reference asset using exchange rate (in fixed decimals)
-        uint256 compensationFixed = MathHelper.calculateDepositAmountWithSwapRate(sharesOut, exchangeRates, true);
-        compensation = TransferHelper.fixedToTokenNativeDecimalsWithCeilDiv(compensationFixed, self.referenceDecimals);
-    }
+    ///======================================================///
+    ///================ PREVIEW FUNCTIONS ===================///
+    ///======================================================///
 
     function previewRedeem(State storage self, uint256 amount) public view returns (uint256 accruedReferenceAsset, uint256 accruedCollateralAsset) {
         if (!_isExpired(self)) return (0, 0);
@@ -216,12 +77,6 @@ library PoolLibrary {
         }
     }
 
-    function _calcWithdrawAmount(State storage self, uint256 collateralAssetOut, uint256 referenceAssetOut, uint256 totalPrincipalTokenIssued, uint256 availableCollateralAsset, uint256 availableReferenceAsset) internal view returns (uint256 sharesIn) {
-        // Calculate required shares based on which asset is being withdrawn
-        if (collateralAssetOut > 0) sharesIn = MathHelper.calculateSharesNeeded(collateralAssetOut, availableCollateralAsset, totalPrincipalTokenIssued);
-        else sharesIn = MathHelper.calculateSharesNeeded(referenceAssetOut, availableReferenceAsset, totalPrincipalTokenIssued);
-    }
-
     function previewWithdraw(State storage self, uint256 collateralAssetOut, uint256 referenceAssetOut) external view returns (uint256 sharesIn, uint256 actualReferenceAssetOut) {
         // Either collateralAssetOut or referenceAssetOut must be zero, but not both
         if ((collateralAssetOut == 0 && referenceAssetOut == 0) || (collateralAssetOut != 0 && referenceAssetOut != 0)) revert IErrors.InvalidAmount();
@@ -245,6 +100,118 @@ library PoolLibrary {
 
         (actualReferenceAssetOut,) = previewRedeem(self, sharesIn);
     }
+
+    function availableForUnwindSwap(State storage self) external view returns (uint256 referenceAsset, uint256 shares) {
+        Shares storage _swapToken = self.shares;
+        Guard.safeBeforeExpired(_swapToken);
+
+        referenceAsset = self.pool.balances.referenceAssetBalance;
+        shares = self.pool.balances.swapTokenBalance;
+    }
+
+    function previewExercise(State storage self, MarketId poolId, uint256 shares, uint256 compensation, address constraintAdapter) internal view returns (uint256 assets, uint256 otherAssetSpent, uint256 fee, uint256 swapTokenProvided, uint256 referenceAssetProvided) {
+        // Either shares or compensation MUST be 0
+        if ((shares == 0 && compensation == 0) || (shares != 0 && compensation != 0)) return (0, 0, 0, 0, 0);
+        if (_isExpired(self)) return (0, 0, 0, 0, 0);
+
+        uint256 _swapRate = _getLatestApplicableRate(poolId, constraintAdapter);
+
+        // Calculate amounts based on mode (shares > 0 = shares mode, otherwise compensation mode)
+        // we need to provide swap token = compensation x swapRate
+        // or we need to provide compensation = swap token / swapRate
+        swapTokenProvided = shares > 0 ? shares : MathHelper.calculateEqualSwapAmount(TransferHelper.tokenNativeDecimalsToFixed(compensation, self.referenceDecimals), _swapRate);
+        referenceAssetProvided = shares > 0 ? TransferHelper.fixedToTokenNativeDecimalsWithCeilDiv(MathHelper.calculateDepositAmountWithSwapRate(swapTokenProvided, _swapRate, true), self.referenceDecimals) : compensation;
+
+        // Calculate collateral asset output (same calculation for both modes)
+        uint256 assetsBeforeFee = TransferHelper.fixedToTokenNativeDecimals(swapTokenProvided, self.collateralDecimals);
+
+        // Other asset spent is the non-primary asset (reference asset in shares mode, CST in compensation mode)
+        otherAssetSpent = shares > 0 ? referenceAssetProvided : swapTokenProvided;
+
+        // Calculate fee and final assets
+        fee = MathHelper.calculatePercentageFee(self.pool.baseRedemptionFeePercentage, assetsBeforeFee);
+        assets = assetsBeforeFee - fee;
+    }
+
+    function previewSwap(State storage self, MarketId poolId, uint256 assets, address constraintAdapter) public view returns (uint256 sharesOut, uint256 compensation, uint256 fee) {
+        if (assets == 0) return (0, 0, 0);
+        if (_isExpired(self)) return (0, 0, 0);
+
+        uint256 exchangeRates = _getLatestApplicableRate(poolId, constraintAdapter);
+
+        // Calculate gross collateral amount needed before fee deduction
+        uint256 grossCollateralAsset = MathHelper.calculateGrossAmountBeforeFee(assets, self.pool.baseRedemptionFeePercentage);
+
+        // Convert gross collateral to fixed decimals to get CST shares needed
+        sharesOut = TransferHelper.tokenNativeDecimalsToFixed(grossCollateralAsset, self.collateralDecimals);
+        // fee in collateral assets. we basically mark up how much shares and compensation user should provide us in exchange for exact amount they requested.
+        // but in reality there's a leftover collateral that hasn't been distributed
+        // imagine : rate = 1, fee = 5%
+        // 1. user provide ~1.052 shares and compensation with exact amount = 1
+        // 2. user should get ~1.052 collateral but they get 1. ~0.052 collateral assets goes to treasury!
+        fee = grossCollateralAsset - assets;
+
+        // Calculate required reference asset using exchange rate (in fixed decimals)
+        uint256 compensationFixed = MathHelper.calculateDepositAmountWithSwapRate(sharesOut, exchangeRates, true);
+        compensation = TransferHelper.fixedToTokenNativeDecimalsWithCeilDiv(compensationFixed, self.referenceDecimals);
+    }
+
+    function previewUnwindSwap(State storage self, MarketId poolId, uint256 amount, address constraintAdapter) public view returns (IUnwindSwap.UnwindSwapReturnParams memory returnParams) {
+        Shares storage tokens = self.shares;
+
+        if (amount == 0) {
+            returnParams.feePercentage = self.pool.unwindSwapFeePercentage;
+            return returnParams;
+        }
+        if (_isExpired(self)) return returnParams;
+
+        returnParams.swapRate = _getLatestApplicableRate(poolId, constraintAdapter);
+
+        returnParams.feePercentage = self.pool.unwindSwapFeePercentage;
+
+        // the fee is taken directly from Collateral Asset before it's even converted to Swap Token
+        {
+            PoolShare _swapToken = PoolShare(tokens.swap);
+            returnParams.fee = MathHelper.calculateTimeDecayFee(_swapToken.issuedAt(), _swapToken.expiry(), block.timestamp, amount, returnParams.feePercentage);
+        }
+
+        amount = amount - returnParams.fee;
+        amount = TransferHelper.tokenNativeDecimalsToFixed(amount, self.collateralDecimals);
+
+        // we use deposit here because technically the user deposit Collateral Asset to the Cork Pool when unwinding, except with swap rate applied
+        returnParams.receivedReferenceAsset = MathHelper.calculateDepositAmountWithSwapRate(amount, returnParams.swapRate, false);
+        returnParams.receivedReferenceAsset = TransferHelper.fixedToTokenNativeDecimals(returnParams.receivedReferenceAsset, self.referenceDecimals);
+        returnParams.receivedSwapToken = amount;
+
+        require(returnParams.receivedReferenceAsset <= self.pool.balances.referenceAssetBalance, IErrors.InsufficientLiquidity(self.pool.balances.referenceAssetBalance, returnParams.receivedReferenceAsset));
+
+        require(returnParams.receivedSwapToken <= self.pool.balances.swapTokenBalance, IErrors.InsufficientLiquidity(amount, self.pool.balances.swapTokenBalance));
+    }
+
+    function previewUnwindExercise(State storage self, MarketId poolId, uint256 shares, address constraintAdapter) public view returns (uint256 assetIn, uint256 compensationOut, uint256 fee) {
+        if (_isExpired(self)) return (0, 0, 0);
+
+        Shares storage tokens = self.shares;
+
+        {
+            uint256 _swapRate = _getLatestApplicableRate(poolId, constraintAdapter);
+
+            // Calculate compensation based on shares and swap rate
+            uint256 compensationFixed = MathHelper.calculateDepositAmountWithSwapRate(shares, _swapRate, false);
+            compensationOut = TransferHelper.fixedToTokenNativeDecimals(compensationFixed, self.referenceDecimals);
+        }
+
+        uint256 assetInWithoutFee = TransferHelper.fixedToTokenNativeDecimals(shares, self.collateralDecimals);
+
+        {
+            PoolShare _swapToken = PoolShare(tokens.swap);
+            (fee, assetIn) = MathHelper.calculateGrossAmountWithTimeDecayFee(_swapToken.issuedAt(), _swapToken.expiry(), block.timestamp, assetInWithoutFee, self.pool.unwindSwapFeePercentage);
+        }
+    }
+
+    ///======================================================///
+    ///================= MAX FUNCTIONS ======================///
+    ///======================================================///
 
     function maxExercise(State storage self, address owner) external view returns (uint256 shares) {
         Shares storage tokens = self.shares;
@@ -298,26 +265,6 @@ library PoolLibrary {
         if (cstSpent < ownerCstBalance) return references;
         // find the optimal reference asset amount
         else (, references,,,) = previewExercise(self, poolId, ownerCstBalance, 0, constraintAdapter);
-    }
-
-    function previewUnwindExercise(State storage self, MarketId poolId, uint256 shares, address constraintAdapter) public view returns (uint256 assetIn, uint256 compensationOut, uint256 fee) {
-        if (_isExpired(self)) return (0, 0, 0);
-
-        Shares storage tokens = self.shares;
-
-        uint256 _swapRate = _getLatestApplicableRate(poolId, constraintAdapter);
-
-        // Calculate compensation based on shares and swap rate
-        uint256 compensationFixed = MathHelper.calculateDepositAmountWithSwapRate(shares, _swapRate, false);
-        compensationOut = TransferHelper.fixedToTokenNativeDecimals(compensationFixed, self.referenceDecimals);
-
-        {
-            PoolShare _swapToken = PoolShare(tokens.swap);
-            (fee, assetIn) = MathHelper.calculateGrossAmountWithTimeDecayFee(_swapToken.issuedAt(), _swapToken.expiry(), block.timestamp, shares, self.pool.unwindSwapFeePercentage);
-        }
-
-        assetIn = TransferHelper.fixedToTokenNativeDecimalsWithCeilDiv(assetIn, self.collateralDecimals);
-        fee = TransferHelper.fixedToTokenNativeDecimalsWithCeilDiv(fee, self.collateralDecimals);
     }
 
     function maxUnwindExercise(State storage self, MarketId poolId, address constraintAdapter) external view returns (uint256 shares) {
@@ -432,7 +379,80 @@ library PoolLibrary {
         (, amount) = MathHelper.calculateGrossAmountWithTimeDecayFee(PoolShare(tokens.swap).issuedAt(), PoolShare(tokens.swap).expiry(), block.timestamp, maxNetAmount, self.pool.unwindSwapFeePercentage);
     }
 
+    ///======================================================///
+    ///============= RATE & FEE RELATED FUNCTIONS ===========///
+    ///======================================================///
+
+    function updateBaseRedemptionFeePercentage(State storage self, uint256 newFees) external {
+        require(newFees <= MAX_ALLOWED_FEES, IErrors.InvalidFees());
+        self.pool.baseRedemptionFeePercentage = newFees;
+    }
+
+    function unwindSwapRate(State storage self, MarketId poolId, address constraintAdapter) external view returns (uint256 rate) {
+        Shares storage tokens = self.shares;
+        Guard.safeBeforeExpired(tokens);
+
+        rate = _getLatestApplicableRate(poolId, constraintAdapter);
+    }
+
+    function unwindSwapFeePercentage(State storage self) external view returns (uint256 rate) {
+        rate = self.pool.unwindSwapFeePercentage;
+    }
+
+    function updateUnwindSwapFeePercentage(State storage self, uint256 newFees) external {
+        require(newFees <= MAX_ALLOWED_FEES, IErrors.InvalidFees());
+        self.pool.unwindSwapFeePercentage = newFees;
+    }
+
+    ///======================================================///
+    ///================== VIEW FUNCTIONS ====================///
+    ///======================================================///
+
+    /// @notice return the next depeg swap expiry
+    function nextExpiry(State storage self) external view returns (uint256 expiry) {
+        Shares storage tokens = self.shares;
+
+        expiry = PoolShare(tokens.swap).expiry();
+    }
+
+    function isInitialized(State storage self) public view returns (bool status) {
+        status = self.info.referenceAsset != address(0) && self.info.collateralAsset != address(0);
+    }
+
+    function valueLocked(State storage self, bool collateralAsset) external view returns (uint256) {
+        if (collateralAsset) return self.pool.balances.collateralAsset.locked + self.pool.poolArchive.collateralAssetAccrued;
+        else return self.pool.balances.referenceAssetBalance + self.pool.poolArchive.referenceAssetAccrued;
+    }
+
+    function swapRate(State storage self, MarketId poolId, address constraintAdapter) external view returns (uint256 rate) {
+        rate = _getLatestApplicableRate(poolId, constraintAdapter);
+    }
+
+    ///======================================================///
+    ///============== INTERNAL UTILITY FUNCTIONS ============///
+    ///======================================================///
+
+    function _getLatestApplicableRate(MarketId poolId, address constraintAdapter) internal view returns (uint256 rate) {
+        return ConstraintAdapter(constraintAdapter).previewAdjustedRate(poolId);
+    }
+
+    // fetch and update the swap rate.
+    function _getLatestApplicableRateAndUpdate(State storage self, MarketId poolId, address constraintAdapter) internal returns (uint256 rate) {
+        rate = ConstraintAdapter(constraintAdapter).adjustedRate(poolId);
+    }
+
     function _isExpired(State storage self) internal view returns (bool) {
         return block.timestamp >= self.info.expiryTimestamp;
+    }
+
+    function _calcWithdrawAmount(State storage self, uint256 collateralAssetOut, uint256 referenceAssetOut, uint256 totalPrincipalTokenIssued, uint256 availableCollateralAsset, uint256 availableReferenceAsset) internal view returns (uint256 sharesIn) {
+        // Calculate required shares based on which asset is being withdrawn
+        if (collateralAssetOut > 0) sharesIn = MathHelper.calculateSharesNeeded(collateralAssetOut, availableCollateralAsset, totalPrincipalTokenIssued);
+        else sharesIn = MathHelper.calculateSharesNeeded(referenceAssetOut, availableReferenceAsset, totalPrincipalTokenIssued);
+    }
+
+    function _calcSwapAmount(State storage self, uint256 amount, uint256 totalPrincipalTokenIssued, uint256 availableCollateralAsset, uint256 availableReferenceAsset) internal view returns (uint256 accruedReferenceAsset, uint256 accruedCollateralAsset) {
+        accruedReferenceAsset = MathHelper.calculateAccrued(amount, availableReferenceAsset, totalPrincipalTokenIssued);
+        accruedCollateralAsset = MathHelper.calculateAccrued(amount, availableCollateralAsset, totalPrincipalTokenIssued);
     }
 }

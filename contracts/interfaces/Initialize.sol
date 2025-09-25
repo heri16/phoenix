@@ -31,21 +31,6 @@ interface Initialize {
     function updateBaseRedemptionFeePercentage(MarketId id, uint256 newBaseRedemptionFeePercentage) external;
 
     /**
-     * @notice get next expiry time from id
-     * @param id id of the pair
-     * @return expiry next expiry time in seconds
-     */
-    function expiry(MarketId id) external view returns (uint256 expiry);
-
-    /**
-     * @notice returns the address of the underlying Collateral Asset and Reference Asset token
-     * @param id the id of Cork Pool
-     * @return collateralAsset address of the underlying Collateral Asset token
-     * @return referenceAsset address of the underlying Reference Asset token
-     */
-    function underlyingAsset(MarketId id) external view returns (address collateralAsset, address referenceAsset);
-
-    /**
      * @notice returns the address of Principal Token and Swap Token associated with a certain Swap Token id
      * @param id the id of Cork Pool
      * @return principalToken address of the Principal Token token
@@ -74,16 +59,6 @@ interface Initialize {
      * @return market The complete market structure containing all market details
      */
     function market(MarketId id) external view returns (Market memory market);
-
-    /**
-     * @notice Gets the core details of a market
-     * @param id The market identifier
-     * @return referenceAsset The address of the reference asset
-     * @return collateralAsset The address of the collateral asset
-     * @return expiryTimestamp The timestamp when the market expires
-     * @return rateOracle The address of the IRateOracle contract
-     */
-    function marketDetails(MarketId id) external view returns (address referenceAsset, address collateralAsset, uint256 expiryTimestamp, address rateOracle, uint256 rateMin, uint256 rateMax, uint256 rateChangePerDayMax, uint256 rateChangeCapacityMax);
 
     /// @notice Emitted when a new LV and Cork Pool is initialized with a given pair
     /// @param id The Cork Pool id

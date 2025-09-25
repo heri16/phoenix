@@ -55,7 +55,7 @@ abstract contract Helper is SigUtils {
 
     uint8 internal constant TARGET_DECIMALS = 18;
 
-    uint8 internal constant MAX_DECIMALS = 32;
+    uint8 internal constant MAX_DECIMALS = 18;
 
     address internal constant CORK_PROTOCOL_TREASURY = address(789);
 

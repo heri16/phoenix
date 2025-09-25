@@ -8,6 +8,7 @@ import {IPoolManager} from "contracts/interfaces/IPoolManager.sol";
 import {IUnwindSwap} from "contracts/interfaces/IUnwindSwap.sol";
 import {Market, MarketId} from "contracts/libraries/Market.sol";
 import {TransferHelper} from "contracts/libraries/TransferHelper.sol";
+import {console2} from "forge-std/console2.sol";
 import {Helper} from "test/forge/Helper.sol";
 import {ERC20Mock} from "test/mocks/ERC20Mock.sol";
 
@@ -223,6 +224,8 @@ contract UnwindExerciseTest is Helper {
         paDecimals = uint8(bound(paDecimals, 6, 18));
         shares = bound(shares, 1 ether, 100 ether);
 
+        vm.assume(shares % 10 ** (18 - raDecimals) == 0);
+
         vm.startPrank(DEFAULT_ADDRESS);
 
         MarketId marketId = _setupMarketWithDecimals(raDecimals, paDecimals);
@@ -394,6 +397,32 @@ contract UnwindExerciseTest is Helper {
         corkPool.unwindExercise(IPoolManager.UnwindExerciseParams({poolId: defaultCurrencyId, shares: 0, receiver: user3, minCompensationOut: 0, maxAssetsIn: type(uint256).max}));
 
         vm.stopPrank();
+    }
+
+    function test_unwindExercise_shouldNotUnlockUnbackedShares() public {
+        vm.startPrank(DEFAULT_ADDRESS);
+
+        // Create market with fuzzed parameters
+        (ERC20Mock _collateralAsset, ERC20Mock _referenceAsset, MarketId _marketId) = createMarket(EXPIRY, 2_666_667_667_666_666_700, 2_666_667_667_666_666_700, 6, 6);
+
+        vm.deal(DEFAULT_ADDRESS, type(uint256).max);
+        _collateralAsset.deposit{value: type(uint128).max}();
+        _referenceAsset.deposit{value: type(uint128).max}();
+
+        _collateralAsset.approve(address(corkPool), type(uint256).max);
+        _referenceAsset.approve(address(corkPool), type(uint256).max);
+
+        // Update default oracle rate
+        testOracle.setRate(_marketId, 1 ether);
+
+        corkPool.deposit(_marketId, DEFAULT_DEPOSIT_AMOUNT, currentCaller());
+        corkPool.exercise(IPoolManager.ExerciseParams({poolId: _marketId, shares: DEFAULT_DEPOSIT_AMOUNT / 4, compensation: 0, receiver: DEFAULT_ADDRESS, minAssetsOut: 0, maxOtherAssetSpent: type(uint256).max}));
+
+        (, address _swapToken) = corkPool.shares(_marketId);
+        uint256 userSharesBalanceBefore = IERC20(_swapToken).balanceOf(DEFAULT_ADDRESS);
+
+        vm.expectPartialRevert(IErrors.InsufficientAmount.selector);
+        corkPool.unwindExercise(IPoolManager.UnwindExerciseParams({poolId: _marketId, shares: 111_111_111_111_111_111_113, receiver: DEFAULT_ADDRESS, minCompensationOut: 0, maxAssetsIn: type(uint256).max}));
     }
 
     function test_unwindExercise_insufficientLiquidity() public {

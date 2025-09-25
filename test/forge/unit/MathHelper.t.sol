@@ -464,4 +464,12 @@ contract MathHelperTest is Helper {
         uint256 maxAccrued = uint256(amount) * uint256(available) / uint256(totalPrincipalTokenIssued);
         assertTrue(result <= maxAccrued + 1); // Allow for rounding
     }
+
+    function test_timeDecayFeeConsistency() external {
+        (uint256 fee, uint256 assetIn) = MathHelper.calculateGrossAmountWithTimeDecayFee(1000, 2000, 1500, 100e18, 5e16);
+
+        (uint256 feeSingle) = MathHelper.calculateTimeDecayFee(1000, 2000, 1500, assetIn, 5e16);
+
+        assertEq(fee, feeSingle);
+    }
 }
