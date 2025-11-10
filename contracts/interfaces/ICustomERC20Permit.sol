@@ -82,6 +82,6 @@ interface ICustomERC20Permit {
     /**
      * @dev Returns the domain separator used in the encoding of the signature for {permit}, as defined by {EIP712}.
      */
-    // solhint-disable-next-line func-name-mixedcase
+    // slither-disable-next-line naming-convention
     function DOMAIN_SEPARATOR() external view returns (bytes32);
 }

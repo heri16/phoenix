@@ -8,6 +8,7 @@ import {IExtsload} from "contracts/interfaces/IExtsload.sol";
 /// @notice Enables public storage access for efficient state retrieval by external contracts.
 /// https://eips.ethereum.org/EIPS/eip-2330#rationale
 abstract contract Extsload is IExtsload {
+    // slither-disable-start assembly
     /// @inheritdoc IExtsload
     function extsload(bytes32 slot) external view returns (bytes32) {
         assembly ("memory-safe") {
@@ -63,4 +64,5 @@ abstract contract Extsload is IExtsload {
             return(start, sub(end, start))
         }
     }
+    // slither-disable-end assembly
 }

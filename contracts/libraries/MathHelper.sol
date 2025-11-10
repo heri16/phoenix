@@ -18,7 +18,7 @@ library MathHelper {
      * @param swapRate the current swap rate
      * @return amount the amount of Collateral Asset user will receive & Swap Token needs to be provided
      */
-    function calculateEqualSwapAmount(uint256 referenceAsset, uint256 swapRate) external pure returns (uint256 amount) {
+    function calculateEqualSwapAmount(uint256 referenceAsset, uint256 swapRate) internal pure returns (uint256 amount) {
         amount = referenceAsset.mulDiv(swapRate, 1e18, Math.Rounding.Floor);
     }
 
@@ -27,8 +27,8 @@ library MathHelper {
      * @param fee1e18 the fee percentage in 1e18
      * @param amount the amount for which the fee is calculated
      */
-    function calculatePercentageFee(uint256 fee1e18, uint256 amount) external pure returns (uint256 feeAmount) {
-        feeAmount = amount.mulDiv(fee1e18, 100e18, Math.Rounding.Floor);
+    function calculatePercentageFee(uint256 fee1e18, uint256 amount) internal pure returns (uint256 feeAmount) {
+        feeAmount = amount.mulDiv(fee1e18, 100e18, Math.Rounding.Ceil);
     }
 
     /**
@@ -36,7 +36,7 @@ library MathHelper {
      * @param amount  the amount of user deposit
      * @param swapRate the current swap rate
      */
-    function calculateDepositAmountWithSwapRate(uint256 amount, uint256 swapRate, bool isRoundUp) public pure returns (uint256) {
+    function calculateDepositAmountWithSwapRate(uint256 amount, uint256 swapRate, bool isRoundUp) internal pure returns (uint256) {
         if (isRoundUp) return amount.mulDiv(1e18, swapRate, Math.Rounding.Ceil);
         else return amount.mulDiv(1e18, swapRate, Math.Rounding.Floor);
     }
@@ -65,27 +65,27 @@ library MathHelper {
         return ((totalDuration - elapsedTime) * 1e18) / totalDuration;
     }
 
-    function calculateGrossAmountWithTimeDecayFee(uint256 _start, uint256 _end, uint256 _current, uint256 _amount, uint256 _baseFeePercentage) internal pure returns (uint256 _fee, uint256 _assetIn) {
-        if (_amount == 0) return (0, 0);
+    function calculateGrossAmountWithTimeDecayFee(uint256 start, uint256 end, uint256 current, uint256 amount, uint256 baseFeePercentage) internal pure returns (uint256 fee, uint256 assetIn) {
+        if (amount == 0) return (0, 0);
 
-        uint256 t = computeT(_start, _end, _current);
+        uint256 t = computeT(start, end, current);
 
-        uint256 feeFactor = (_baseFeePercentage * t) / 1e18;
+        uint256 feeFactor = (baseFeePercentage * t) / 1e18;
 
-        uint256 withFee = _amount.mulDiv(100e18, (100e18 - feeFactor), Math.Rounding.Ceil);
+        uint256 withFee = amount.mulDiv(100e18, (100e18 - feeFactor), Math.Rounding.Ceil);
 
-        _assetIn = withFee;
-        _fee = (_assetIn - _amount);
+        assetIn = withFee;
+        fee = (assetIn - amount);
     }
 
-    function calculateTimeDecayFee(uint256 _start, uint256 _end, uint256 _current, uint256 _amount, uint256 _baseFeePercentage) internal pure returns (uint256 _fee) {
-        if (_amount == 0) return (0);
+    function calculateTimeDecayFee(uint256 start, uint256 end, uint256 current, uint256 amount, uint256 baseFeePercentage) internal pure returns (uint256 fee) {
+        if (amount == 0) return 0;
 
-        uint256 t = computeT(_start, _end, _current);
+        uint256 t = computeT(start, end, current);
 
-        uint256 feeFactor = (_baseFeePercentage * t) / 1e18;
+        uint256 feeFactor = (baseFeePercentage * t) / 1e18;
 
-        _fee = _amount.mulDiv(feeFactor, 100e18, Math.Rounding.Ceil);
+        fee = amount.mulDiv(feeFactor, 100e18, Math.Rounding.Ceil);
     }
 
     /// @notice calculate the required shares needed to get a specific amount of assets
@@ -94,7 +94,7 @@ library MathHelper {
     /// therefore: shares = amount * (totalPrincipalTokenIssued / available)
     function calculateSharesNeeded(uint256 amount, uint256 available, uint256 totalPrincipalTokenIssued) internal pure returns (uint256 shares) {
         if (amount == 0 || totalPrincipalTokenIssued == 0 || available == 0) return 0;
-        shares = (amount * totalPrincipalTokenIssued).ceilDiv(available);
+        shares = amount.mulDiv(totalPrincipalTokenIssued, available, Math.Rounding.Ceil);
     }
 
     /// @notice calculate the gross amount needed before fee deduction to achieve a desired net amount
@@ -102,7 +102,7 @@ library MathHelper {
     /// @param desiredAmount the amount you want to receive after fees
     /// @param feeRate the fee percentage in 1e18 format (e.g., 5e18 = 5%)
     /// @return grossAmount the gross amount needed before fee deduction
-    function calculateGrossAmountBeforeFee(uint256 desiredAmount, uint256 feeRate) external pure returns (uint256 grossAmount) {
+    function calculateGrossAmountBeforeFee(uint256 desiredAmount, uint256 feeRate) internal pure returns (uint256 grossAmount) {
         // grossAmount = desiredAmount ÷ (1 - feeRate)
         // So grossAmount = (desiredAmount * 100e18)÷ (100e18 - rate in 100e18)
         // Where rate in 100e18 means => 1% = 1e18

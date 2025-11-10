@@ -4,11 +4,9 @@
 pragma solidity ^0.8.28;
 
 import {IWNative} from "../interfaces/IWNative.sol";
-
 import {MathRayLib} from "../libraries/MathRayLib.sol";
-import {Address, CoreAdapter, ErrorsLib, IERC20, SafeERC20} from "./CoreAdapter.sol";
 import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
-
+import {Address, CoreAdapter, ErrorsLib, IERC20, SafeERC20} from "bundler3/adapters/CoreAdapter.sol";
 import {Permit2Lib} from "permit2/src/libraries/Permit2Lib.sol";
 import {SafeCast160} from "permit2/src/libraries/SafeCast160.sol";
 
@@ -21,6 +19,7 @@ contract GeneralAdapter1 is CoreAdapter {
     /* IMMUTABLES */
 
     /// @dev The address of the wrapped native token.
+    // slither-disable-next-line naming-convention
     IWNative public immutable WRAPPED_NATIVE;
 
     /* CONSTRUCTOR */
@@ -155,6 +154,7 @@ contract GeneralAdapter1 is CoreAdapter {
 
         require(amount != 0, ErrorsLib.ZeroAmount());
 
+        // slither-disable-next-line arbitrary-send-erc20
         SafeERC20.safeTransferFrom(IERC20(token), initiator, receiver, amount);
     }
 

@@ -16,6 +16,7 @@ library ChainlinkDataFeedLib {
     function getPrice(MinimalAggregatorV3Interface feed) internal view returns (uint256) {
         if (address(feed) == address(0)) return 1;
 
+        // slither-disable-next-line unused-return
         (, int256 answer,,,) = feed.latestRoundData();
         require(answer >= 0, "negative answer");
 

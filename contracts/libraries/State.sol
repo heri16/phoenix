@@ -34,19 +34,22 @@ struct CollateralAssetManager {
 }
 
 /**
- * @dev PoolState structure for Cork Pool Core
+ * @notice Represents the full state of a Cork Pool within the Core contract.
+ * @dev The `pauseBitMap` field encodes pause states for different pool operations.
+ * @dev The mapping of bit positions to operations is as follows:
+ * @dev - Bit 0 → Deposit operations (`isDepositPaused`)
+ * @dev - Bit 1 → Swap operations (`isSwapPaused`)
+ * @dev - Bit 2 → Withdrawal operations (`isWithdrawalPaused`)
+ * @dev - Bit 3 → Unwind deposit operations (`isUnwindDepositPaused`)
+ * @dev - Bit 4 → Unwind swap operations (`isUnwindSwapPaused`)
  */
 struct PoolState {
     Balances balances;
     uint256 unwindSwapFeePercentage;
     CorkPoolPoolArchive poolArchive;
     bool liquiditySeparated;
-    bool isDepositPaused;
-    bool isSwapPaused;
-    bool isWithdrawalPaused;
-    bool isReturnPaused;
-    bool isUnwindSwapPaused;
-    uint256 baseRedemptionFeePercentage;
+    uint16 pauseBitMap;
+    uint256 swapFeePercentage;
 }
 
 /**

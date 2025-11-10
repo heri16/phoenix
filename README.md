@@ -1,6 +1,7 @@
-# Depeg Swap V1
+# Phoenix
 
-This repository contains core smart contracts of Depeg Swaps.
+This repository contains core smart contracts of Cork Phoenix.
+
 # Build
 
 Install toolchain manager (mise)
@@ -35,31 +36,10 @@ For production you need to use the optimized build with IR compilation turned on
 FOUNDRY_PROFILE=optimized forge build
 ```
 
-# Setup Kontrol
-
-To install kontrol use below commands : 
-
-```bash
-# install kup package manager
-bash <(curl https://kframework.org/install) 
-# install Kontrol
-kup install kontrol
-# list available Kontrol versions
-kup list kontrol
-```
-
 # Tests
 
 To run test, use this command :
 
 ```bash
 forge test
-```
-
-To run Formal verification proofs, use below commands :
-
-```bash
-export FOUNDRY_PROFILE=kontrol-properties
-kontrol build
-kontrol prove
 ```

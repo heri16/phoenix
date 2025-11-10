@@ -1,0 +1,20 @@
+{
+  "lib/BokkyPooBahsDateTimeLibrary": {
+    "rev": "1dc26f977c57a6ba3ed6d7c53cafdb191e7e59ae"
+  },
+  "lib/bundler3": {
+    "rev": "3b22daf606bdef4f119f168c74496f87a90ac8e5"
+  },
+  "lib/forge-std": {
+    "rev": "83c5d212a01f8950727da4095cdfe2654baccb5b"
+  },
+  "lib/openzeppelin-contracts": {
+    "rev": "653963beb27f4dcda72ca2773f0a6bd7b733a6f4"
+  },
+  "lib/openzeppelin-contracts-upgradeable": {
+    "rev": "94c7b7c87a69139c4e4d33ac142a1d1820b0d7d5"
+  },
+  "lib/permit2": {
+    "rev": "cc56ad0f3439c502c246fc5cfcc3db92bb8b7219"
+  }
+}

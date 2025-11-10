@@ -6,19 +6,19 @@ import {Market, MarketId} from "contracts/libraries/Market.sol";
 /**
  * @title Initialize Interface
  * @author Cork Team
- * @notice Initialize interface for providing Initialization related functions through CorkPool contract
+ * @notice Initialize interface for providing Initialization related functions through CorkPoolManager contract
  */
 interface Initialize {
     /**
      * @notice initialize a new pool, this will initialize Cork Pool and Liquidity Vault and deploy new LV token
-     * @dev Only callable by config contract Deploy new CPT and CST tokens for the market
+     * @dev Only callable by controller contract Deploy new CPT and CST tokens for the market
      * @param poolParams Parameters for the new pool
      */
     function createNewPool(Market calldata poolParams) external;
 
     /**
      * @notice update Cork Pool unwindSwap fee rate for a pair
-     * @dev Only callable by config contract
+     * @dev Only callable by controller contract
      * @param id id of the pair
      * @param newUnwindSwapFeePercentage new value of unwindSwap fees, make sure it has 18 decimals(e.g 1% = 1e18)
      */
@@ -26,9 +26,9 @@ interface Initialize {
 
     /**
      * @notice update Cork Pool base redemption fee percentage
-     * @param newBaseRedemptionFeePercentage new value of base redemption fees, make sure it has 18 decimals(e.g 1% = 1e18)
+     * @param newSwapFeePercentage new value of base redemption fees, make sure it has 18 decimals(e.g 1% = 1e18)
      */
-    function updateBaseRedemptionFeePercentage(MarketId id, uint256 newBaseRedemptionFeePercentage) external;
+    function updateSwapFeePercentage(MarketId id, uint256 newSwapFeePercentage) external;
 
     /**
      * @notice returns the address of Principal Token and Swap Token associated with a certain Swap Token id
@@ -40,25 +40,25 @@ interface Initialize {
 
     /**
      * @notice Generates a unique market ID from market parameters
-     * @param market The market parameters
-     * market.referenceAsset The address of the reference asset (e.g., ETH for depeg protection)
-     * market.collateralAsset The address of the collateral asset (e.g., stETH)
-     * market.expiryTimestamp The expiry timestamp for the market
-     * market.rateOracle The address of the IRateOracle contract
-     * market.rateMin The minimum rate for the market
-     * market.rateMax The maximum rate for the market
-     * market.rateChangePerDayMax The maximum rate change per day for the market
-     * market.rateChangeCapacityMax The maximum rate change capacity for the market
+     * @param marketParameters The market parameters
+     * marketParameters.referenceAsset The address of the reference asset (e.g., ETH for depeg protection)
+     * marketParameters.collateralAsset The address of the collateral asset (e.g., stETH)
+     * marketParameters.expiryTimestamp The expiry timestamp for the market
+     * marketParameters.rateOracle The address of the IRateOracle contract
+     * marketParameters.rateMin The minimum rate for the market
+     * marketParameters.rateMax The maximum rate for the market
+     * marketParameters.rateChangePerDayMax The maximum rate change per day for the market
+     * marketParameters.rateChangeCapacityMax The maximum rate change capacity for the market
      * @return marketId The unique market identifier
      */
-    function getId(Market calldata market) external view returns (MarketId marketId);
+    function getId(Market calldata marketParameters) external view returns (MarketId marketId);
 
     /**
-     * @notice Gets the market information for a given market ID
+     * @notice Gets the market parameters for a given market ID
      * @param id The market identifier
-     * @return market The complete market structure containing all market details
+     * @return parameters The complete market structure containing all market details
      */
-    function market(MarketId id) external view returns (Market memory market);
+    function market(MarketId id) external view returns (Market memory parameters);
 
     /// @notice Emitted when a new LV and Cork Pool is initialized with a given pair
     /// @param id The Cork Pool id

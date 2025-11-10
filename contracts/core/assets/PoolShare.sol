@@ -4,74 +4,29 @@ pragma solidity ^0.8.30;
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {ERC20Burnable} from "@openzeppelin/contracts/token/ERC20/extensions/ERC20Burnable.sol";
-import {IExpiry} from "contracts/interfaces/IExpiry.sol";
 import {IPoolManager} from "contracts/interfaces/IPoolManager.sol";
 import {IPoolShare} from "contracts/interfaces/IPoolShare.sol";
 import {ISwapRate} from "contracts/interfaces/ISwapRate.sol";
-import {IUnwindSwap} from "contracts/interfaces/IUnwindSwap.sol";
-import {MarketId} from "contracts/libraries/Market.sol";
+import {Market, MarketId} from "contracts/libraries/Market.sol";
 import {ERC20Permit} from "openzeppelin-contracts/contracts/token/ERC20/extensions/ERC20Permit.sol";
-
-/**
- * @title Contract for Adding Expiry functionality to Swap Token
- * @author Cork Team
- * @notice Adds Expiry functionality to PoolShare contracts
- * @dev Used for adding Expiry functionality to contracts like Swap Token
- */
-abstract contract Expiry is IExpiry {
-    uint256 internal immutable EXPIRY;
-    uint256 internal immutable ISSUED_AT;
-
-    ///======================================================///
-    ///================== CONSTRUCTOR =======================///
-    ///======================================================///
-
-    /**
-     * @notice Initializes the shares contract with the given expiry timestamp.
-     * If the expiry timestamp is in the past, the transaction will revert with an Expired error.
-     * If the expiry timestamp is 0, the transaction will revert with an InvalidExpiry error.
-     * @param _expiry The expiry timestamp for the shares contract.
-     */
-    constructor(uint256 _expiry) {
-        require(_expiry > block.timestamp, InvalidExpiry());
-
-        EXPIRY = _expiry;
-        ISSUED_AT = block.timestamp;
-    }
-
-    ///======================================================///
-    ///================== VIEW FUNCTIONS ====================///
-    ///======================================================///
-
-    /// @inheritdoc IExpiry
-    function isExpired() public view virtual returns (bool) {
-        return block.timestamp >= EXPIRY;
-    }
-
-    /// @inheritdoc IExpiry
-    function expiry() external view virtual returns (uint256) {
-        return EXPIRY;
-    }
-
-    /// @inheritdoc IExpiry
-    function issuedAt() external view virtual returns (uint256) {
-        return ISSUED_AT;
-    }
-}
 
 /**
  * @title PoolShare Contract
  * @author Cork Team
  * @notice Contract for implementing assets like Swap Token/Principal Token etc
  */
-contract PoolShare is ERC20Burnable, ERC20Permit, Ownable, Expiry, ISwapRate, IPoolShare {
+contract PoolShare is ERC20Burnable, ERC20Permit, Ownable, ISwapRate, IPoolShare {
     string public pairName;
 
-    MarketId public poolId;
+    // poolId, poolManager, factory needs to adhere to IPoolShare interface without extra boilerplate
+    // so we keep the variable camel case rather than SCREAMING_CASE
+    MarketId public immutable poolId;
 
-    IPoolManager public poolManager;
+    IPoolManager public immutable poolManager;
 
-    address public factory;
+    address public immutable factory;
+
+    uint256 public immutable issuedAt;
 
     ///======================================================///
     ///=================== MODIFIERS ========================///
@@ -87,12 +42,13 @@ contract PoolShare is ERC20Burnable, ERC20Permit, Ownable, Expiry, ISwapRate, IP
     ///================== CONSTRUCTOR =======================///
     ///======================================================///
 
-    constructor(IPoolShare.ConstructorParams memory params) ERC20(params.pairName, params.symbol) ERC20Permit(params.pairName) Ownable(params.poolManager) Expiry(params.expiry) {
+    constructor(IPoolShare.ConstructorParams memory params) ERC20(params.pairName, params.symbol) ERC20Permit(params.pairName) Ownable(params.poolManager) {
         pairName = params.pairName;
         poolManager = IPoolManager(params.poolManager);
         poolId = params.poolId;
 
         factory = _msgSender();
+        issuedAt = block.timestamp;
     }
 
     ///======================================================///
@@ -110,7 +66,20 @@ contract PoolShare is ERC20Burnable, ERC20Permit, Ownable, Expiry, ISwapRate, IP
      * @param referenceAsset The Reference Assets reserve amount for shares contract.
      */
     function getReserves() external view returns (uint256 collateralAsset, uint256 referenceAsset) {
-        (collateralAsset, referenceAsset) = poolManager.valueLocked(poolId);
+        (collateralAsset, referenceAsset) = poolManager.assets(poolId);
+    }
+
+    /// @inheritdoc IPoolShare
+    function isExpired() public view returns (bool) {
+        Market memory market = poolManager.market(poolId);
+        // slither-disable-next-line timestamp
+        return block.timestamp >= market.expiryTimestamp;
+    }
+
+    /// @inheritdoc IPoolShare
+    function expiry() external view returns (uint256) {
+        Market memory market = poolManager.market(poolId);
+        return market.expiryTimestamp;
     }
 
     ///======================================================///
@@ -143,7 +112,7 @@ contract PoolShare is ERC20Burnable, ERC20Permit, Ownable, Expiry, ISwapRate, IP
 
     /**
      * @notice burns `amount` number of tokens from `owner` by spending the allowance that `owner` has to `sender`  .
-     * - This operation can only be done by cork pool
+     * - This operation can only be done by CorkPoolManager
      * - if sender == owner, it will treat it as a regular `burn`
      * @param sender The address of the sender
      * @param owner address of the owner to be burned from
@@ -159,7 +128,7 @@ contract PoolShare is ERC20Burnable, ERC20Permit, Ownable, Expiry, ISwapRate, IP
 
     /**
      * @notice Transfer `amount` of token to address `to` on behalf of `owner` by spending the allowance that `owner` has to `sender`  .
-     * - This operation can only be done by cork pool
+     * - This operation can only be done by CorkPoolManager
      * @param sender The address of the sender
      * @param owner The address of the owner
      * @param to The address of the receiver
@@ -200,68 +169,68 @@ contract PoolShare is ERC20Burnable, ERC20Permit, Ownable, Expiry, ISwapRate, IP
     ///======================================================///
 
     /// @inheritdoc IPoolShare
-    function maxMint(address owner) public view returns (uint256 maxAmount) {
-        return poolManager.maxMint(poolId, owner);
+    function maxMint(address owner) public view returns (uint256 maxCptAndCstSharesOut) {
+        maxCptAndCstSharesOut = poolManager.maxMint(poolId, owner);
     }
 
     /// @inheritdoc IPoolShare
-    function maxDeposit(address owner) public view returns (uint256 maxCollateralAssets) {
-        return poolManager.maxDeposit(poolId, owner);
+    function maxDeposit(address owner) public view returns (uint256 maxCollateralAssetsIn) {
+        maxCollateralAssetsIn = poolManager.maxDeposit(poolId, owner);
     }
 
     /// @inheritdoc IPoolShare
-    function maxUnwindDeposit(address owner) public view returns (uint256 maxCollateralAssetAmountOut) {
-        return poolManager.maxUnwindDeposit(poolId, owner);
+    function maxUnwindDeposit(address owner) public view returns (uint256 maxCollateralAssetsOut) {
+        maxCollateralAssetsOut = poolManager.maxUnwindDeposit(poolId, owner);
     }
 
     /// @inheritdoc IPoolShare
     function maxUnwindMint(address owner) public view returns (uint256 maxCptAndCstSharesIn) {
-        return poolManager.maxUnwindMint(poolId, owner);
+        maxCptAndCstSharesIn = poolManager.maxUnwindMint(poolId, owner);
     }
 
     /// @inheritdoc IPoolShare
-    function maxWithdraw(address owner) public view returns (uint256 maxCollateralAssets) {
-        return poolManager.maxWithdraw(poolId, owner);
+    function maxWithdraw(address owner) public view returns (uint256 maxCollateralAssetsOut) {
+        maxCollateralAssetsOut = poolManager.maxWithdraw(poolId, owner);
     }
 
     /// @inheritdoc IPoolShare
-    function maxWithdrawOther(address owner) public view returns (uint256 maxReferenceAssets) {
-        return poolManager.maxWithdrawOther(poolId, owner);
+    function maxWithdrawOther(address owner) public view returns (uint256 maxReferenceAssetsOut) {
+        maxReferenceAssetsOut = poolManager.maxWithdrawOther(poolId, owner);
     }
 
     /// @inheritdoc IPoolShare
-    function maxExercise(address owner) public view returns (uint256 maxCstShares) {
-        return poolManager.maxExercise(poolId, owner);
+    function maxExercise(address owner) public view returns (uint256 maxCstSharesIn) {
+        maxCstSharesIn = poolManager.maxExercise(poolId, owner);
     }
 
     /// @inheritdoc IPoolShare
-    function maxExerciseOther(address owner) public view returns (uint256 maxReferenceAssets) {
-        return poolManager.maxExerciseOther(poolId, owner);
+    function maxExerciseOther(address owner) public view returns (uint256 maxReferenceAssetsIn) {
+        maxReferenceAssetsIn = poolManager.maxExerciseOther(poolId, owner);
     }
 
     /// @inheritdoc IPoolShare
-    function maxRedeem(address owner) public view returns (uint256 maxShares) {
-        return poolManager.maxRedeem(poolId, owner);
+    function maxRedeem(address owner) public view returns (uint256 maxCptSharesIn) {
+        maxCptSharesIn = poolManager.maxRedeem(poolId, owner);
     }
 
     /// @inheritdoc IPoolShare
-    function maxSwap(address owner) public view returns (uint256 maxAssets) {
-        return poolManager.maxSwap(poolId, owner);
+    function maxSwap(address owner) public view returns (uint256 maxCollateralAssetsOut) {
+        maxCollateralAssetsOut = poolManager.maxSwap(poolId, owner);
     }
 
     /// @inheritdoc IPoolShare
-    function maxUnwindExercise(address receiver) public view returns (uint256 maxShares) {
-        return poolManager.maxUnwindExercise(poolId, receiver);
+    function maxUnwindExercise(address owner) public view returns (uint256 maxCstSharesOut) {
+        maxCstSharesOut = poolManager.maxUnwindExercise(poolId, owner);
     }
 
     /// @inheritdoc IPoolShare
-    function maxUnwindExerciseOther(address receiver) public view returns (uint256 maxReferenceAssets) {
-        return poolManager.maxUnwindExerciseOther(poolId, receiver);
+    function maxUnwindExerciseOther(address owner) public view returns (uint256 maxReferenceAssetsOut) {
+        maxReferenceAssetsOut = poolManager.maxUnwindExerciseOther(poolId, owner);
     }
 
     /// @inheritdoc IPoolShare
-    function maxUnwindSwap(address receiver) public view returns (uint256 maxAmount) {
-        return poolManager.maxUnwindSwap(poolId, receiver);
+    function maxUnwindSwap(address owner) public view returns (uint256 maxCollateralAssetsIn) {
+        maxCollateralAssetsIn = poolManager.maxUnwindSwap(poolId, owner);
     }
 
     ///======================================================///
@@ -269,54 +238,67 @@ contract PoolShare is ERC20Burnable, ERC20Permit, Ownable, Expiry, ISwapRate, IP
     ///======================================================///
 
     /// @inheritdoc IPoolShare
-    function previewExercise(uint256 shares, uint256 compensation) public view returns (uint256 assets, uint256 otherAssetSpent, uint256 fee) {
-        return poolManager.previewExercise(poolId, shares, compensation);
+    function previewExercise(uint256 cstSharesIn) public view returns (uint256 collateralAssetsOut, uint256 referenceAssetsIn, uint256 fee) {
+        (collateralAssetsOut, referenceAssetsIn, fee) = poolManager.previewExercise(poolId, cstSharesIn);
     }
 
     /// @inheritdoc IPoolShare
-    function previewUnwindExercise(uint256 shares) public view returns (uint256 assetIn, uint256 compensationOut) {
-        return poolManager.previewUnwindExercise(poolId, shares);
+    function previewExerciseOther(uint256 referenceAssetsIn) public view returns (uint256 collateralAssetsOut, uint256 cstSharesIn, uint256 fee) {
+        (collateralAssetsOut, cstSharesIn, fee) = poolManager.previewExerciseOther(poolId, referenceAssetsIn);
     }
 
     /// @inheritdoc IPoolShare
-    function previewDeposit(uint256 collateralAssets) public view returns (uint256 outShares) {
-        return poolManager.previewDeposit(poolId, collateralAssets);
+    function previewUnwindExercise(uint256 cstSharesOut) public view returns (uint256 collateralAssetsIn, uint256 referenceAssetsOut, uint256 fee) {
+        (collateralAssetsIn, referenceAssetsOut, fee) = poolManager.previewUnwindExercise(poolId, cstSharesOut);
     }
 
     /// @inheritdoc IPoolShare
-    function previewSwap(uint256 collateralAssets) public view returns (uint256 suppliedCstShares, uint256 suppliedReferenceAssets) {
-        return poolManager.previewSwap(poolId, collateralAssets);
+    function previewUnwindExerciseOther(uint256 referenceAssetsOut) public view returns (uint256 collateralAssetsIn, uint256 cstSharesOut, uint256 fee) {
+        (collateralAssetsIn, cstSharesOut, fee) = poolManager.previewUnwindExerciseOther(poolId, referenceAssetsOut);
     }
 
     /// @inheritdoc IPoolShare
-    function previewRedeem(uint256 cptShares) public view returns (uint256 outReferenceAssets, uint256 outCollateralAssets) {
-        return poolManager.previewRedeem(poolId, cptShares);
+    function previewDeposit(uint256 collateralAssetsIn) public view returns (uint256 cptAndCstSharesOut) {
+        (cptAndCstSharesOut) = poolManager.previewDeposit(poolId, collateralAssetsIn);
     }
 
     /// @inheritdoc IPoolShare
-    function previewUnwindDeposit(uint256 collateralAssets) public view returns (uint256 suppliedShares) {
-        return poolManager.previewUnwindDeposit(poolId, collateralAssets);
+    function previewSwap(uint256 collateralAssetsOut) public view returns (uint256 cstSharesIn, uint256 referenceAssetsIn, uint256 fee) {
+        (cstSharesIn, referenceAssetsIn, fee) = poolManager.previewSwap(poolId, collateralAssetsOut);
     }
 
     /// @inheritdoc IPoolShare
-    function previewUnwindSwap(uint256 collateralAssets) public view returns (uint256 outReferenceAssets, uint256 outCstShares) {
-        IUnwindSwap.UnwindSwapReturnParams memory returnParams = poolManager.previewUnwindSwap(poolId, collateralAssets);
-        outReferenceAssets = returnParams.receivedReferenceAsset;
-        outCstShares = returnParams.receivedSwapToken;
+    function previewRedeem(uint256 cptSharesIn) public view returns (uint256 referenceAssetsOut, uint256 collateralAssetsOut) {
+        (referenceAssetsOut, collateralAssetsOut) = poolManager.previewRedeem(poolId, cptSharesIn);
     }
 
     /// @inheritdoc IPoolShare
-    function previewMint(uint256 shares) public view returns (uint256 suppliedCollateralAssets) {
-        return poolManager.previewMint(poolId, shares);
+    function previewUnwindDeposit(uint256 collateralAssetsOut) public view returns (uint256 cptAndCstSharesIn) {
+        (cptAndCstSharesIn) = poolManager.previewUnwindDeposit(poolId, collateralAssetsOut);
     }
 
     /// @inheritdoc IPoolShare
-    function previewUnwindMint(uint256 shares) public view returns (uint256 outCollateralAssets) {
-        return poolManager.previewUnwindMint(poolId, shares);
+    function previewUnwindSwap(uint256 collateralAssetsIn) public view returns (uint256 cstSharesOut, uint256 referenceAssetsOut, uint256 fee) {
+        (cstSharesOut, referenceAssetsOut, fee) = poolManager.previewUnwindSwap(poolId, collateralAssetsIn);
     }
 
     /// @inheritdoc IPoolShare
-    function previewWithdraw(uint256 collateralAssetOut, uint256 referenceAssetOut) public view returns (uint256 sharesIn, uint256 actualReferenceAssetOut) {
-        return poolManager.previewWithdraw(poolId, collateralAssetOut, referenceAssetOut);
+    function previewMint(uint256 cptAndCstSharesOut) public view returns (uint256 collateralAssetsIn) {
+        (collateralAssetsIn) = poolManager.previewMint(poolId, cptAndCstSharesOut);
+    }
+
+    /// @inheritdoc IPoolShare
+    function previewUnwindMint(uint256 cptAndCstSharesIn) public view returns (uint256 collateralAssetsOut) {
+        (collateralAssetsOut) = poolManager.previewUnwindMint(poolId, cptAndCstSharesIn);
+    }
+
+    /// @inheritdoc IPoolShare
+    function previewWithdraw(uint256 collateralAssetsOut) external view returns (uint256 cptSharesIn, uint256 actualCollateralAssetsOut, uint256 actualReferenceAssetsOut) {
+        (cptSharesIn, actualCollateralAssetsOut, actualReferenceAssetsOut) = poolManager.previewWithdraw(poolId, collateralAssetsOut);
+    }
+
+    /// @inheritdoc IPoolShare
+    function previewWithdrawOther(uint256 referenceAssetsOut) external view returns (uint256 cptSharesIn, uint256 actualCollateralAssetsOut, uint256 actualReferenceAssetsOut) {
+        (cptSharesIn, actualCollateralAssetsOut, actualReferenceAssetsOut) = poolManager.previewWithdrawOther(poolId, referenceAssetsOut);
     }
 }

@@ -4,6 +4,6 @@ ds-test/=lib/openzeppelin-contracts-upgradeable/lib/forge-std/lib/ds-test/src/
 erc4626-tests/=lib/openzeppelin-contracts-upgradeable/lib/erc4626-tests/
 forge-gas-snapshot/=lib/Cork-Hook/lib/v4-periphery/lib/v4-core/lib/forge-gas-snapshot/src/
 forge-std/=lib/forge-std/src/
-@prb/math/=lib/prb-math/
 permit2=lib/permit2/
 BokkyPooBahsDateTimeLibrary/=lib/BokkyPooBahsDateTimeLibrary/contracts/
+bundler3/=lib/bundler3/src/

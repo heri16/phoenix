@@ -14,6 +14,7 @@ contract GeneralAdapter is GeneralAdapter1 {
     /* IMMUTABLES */
 
     /// @dev The address of the PERMIT2 contract.
+    // slither-disable-next-line naming-convention
     IPermit2 public immutable PERMIT2;
 
     /* CONSTRUCTOR */
@@ -37,7 +38,7 @@ contract GeneralAdapter is GeneralAdapter1 {
     /// @param signature The signature to verify
     /// @param receiver The address that will receive the tokens. `onlyBundler3` ensures that this originated from the initiator.
     /// @param amount The amount of token to transfer. Pass `type(uint).max` to transfer the initiator's balance.
-    function permit2TransferFromWithPermit(ISignatureTransfer.PermitTransferFrom memory permit, bytes calldata signature, address receiver, uint256 amount) external onlyBundler3 {
+    function permit2TransferFromWithPermit(ISignatureTransfer.PermitTransferFrom calldata permit, bytes calldata signature, address receiver, uint256 amount) external onlyBundler3 {
         require(receiver != address(0), ErrorsLib.ZeroAddress());
 
         address initiator = initiator();

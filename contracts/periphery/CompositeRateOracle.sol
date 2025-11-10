@@ -4,7 +4,6 @@ pragma solidity ^0.8.30;
 import {ICompositeRateOracle, SourceParams} from "../interfaces/ICompositeRateOracle.sol";
 import {IMorphoOracle} from "../interfaces/IMorphoOracle.sol";
 import {IRateOracle} from "../interfaces/IRateOracle.sol";
-
 import {ChainlinkDataFeedLib, MinimalAggregatorV3Interface} from "../libraries/ChainlinkDataFeedLib.sol";
 import {ERC4626Lib, IERC4626} from "../libraries/ERC4626Lib.sol";
 import {Math} from "openzeppelin-contracts/contracts/utils/math/Math.sol";
@@ -63,8 +62,9 @@ contract CompositeRateOracle is ICompositeRateOracle, IMorphoOracle {
     }
 
     /// @inheritdoc MinimalAggregatorV3Interface
-    function latestRoundData() external view returns (uint80 roundId, int256 answer, uint256 startedAt, uint256 updatedAt, uint80 answeredInRound) {
+    function latestRoundData() external view returns (uint80, int256 answer, uint256, uint256, uint80) {
         answer = int256(price());
+        return (0, answer, 0, 0, 0);
     }
 
     /// @inheritdoc MinimalAggregatorV3Interface

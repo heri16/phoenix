@@ -12,7 +12,6 @@ import {MarketId} from "contracts/libraries/Market.sol";
 interface IPoolShare {
     struct ConstructorParams {
         MarketId poolId;
-        uint256 expiry;
         string pairName;
         string symbol;
         address poolManager;
@@ -63,8 +62,8 @@ interface IPoolShare {
     function poolId() external view returns (MarketId);
 
     /**
-     * @notice Returns the cork pool address
-     * @return The address of the cork pool contract
+     * @notice Returns the cork pool manager address
+     * @return The address of the cork pool manager contract
      */
     function poolManager() external view returns (IPoolManager);
 
@@ -81,9 +80,18 @@ interface IPoolShare {
      */
     function getReserves() external view returns (uint256 collateralAsset, uint256 referenceAsset);
 
+    /// @notice returns true if the share is expired
+    function isExpired() external view returns (bool);
+
+    ///@notice returns the expiry timestamp if 0 then it means it never expires
+    function expiry() external view returns (uint256);
+
+    ///@notice returns the timestamp when the share was issued
+    function issuedAt() external view returns (uint256);
+
     /**
      * @notice Emits a deposit event for ERC4626 compatibility
-     * @dev This function can only be called by the cork pool contract (owner)
+     * @dev This function can only be called by the cork pool manager contract (owner)
      * @param sender The address initiating the deposit
      * @param receiver The address receiving the shares
      * @param assets The amount of assets deposited
@@ -93,7 +101,7 @@ interface IPoolShare {
 
     /**
      * @notice Emits a withdraw event for ERC4626 compatibility
-     * @dev This function can only be called by the cork pool contract (owner)
+     * @dev This function can only be called by the cork pool manager contract (owner)
      * @param sender The address initiating the withdrawal
      * @param receiver The address receiving the assets
      * @param owner The address owning the shares
@@ -104,7 +112,7 @@ interface IPoolShare {
 
     /**
      * @notice Emits a withdraw other event
-     * @dev This function can only be called by the cork pool contract (owner)
+     * @dev This function can only be called by the cork pool manager contract (owner)
      * @param sender The address initiating the withdrawal
      * @param receiver The address receiving the reference assets
      * @param owner The address owning the shares
@@ -116,7 +124,7 @@ interface IPoolShare {
 
     /**
      * @notice Emits a deposit other event
-     * @dev This function can only be called by the cork pool contract (owner)
+     * @dev This function can only be called by the cork pool manager contract (owner)
      * @param sender The address initiating the deposit
      * @param owner The address receiving the shares
      * @param asset The address of the reference asset
@@ -128,23 +136,23 @@ interface IPoolShare {
     /**
      * @notice Returns the maximum amount of CPT and CST tokens that can be minted
      * @param owner The address of the owner
-     * @return maxAmount The maximum amount of CPT and CST tokens that can be minted
+     * @return maxCptAndCstSharesOut The maximum amount of CPT and CST tokens that can be minted
      */
-    function maxMint(address owner) external view returns (uint256 maxAmount);
+    function maxMint(address owner) external view returns (uint256 maxCptAndCstSharesOut);
 
     /**
      * @notice Returns the maximum amount of collateral asset that can be deposited
      * @param owner The address of the owner
-     * @return maxCollateralAssets The maximum amount of collateral asset that can be deposited
+     * @return maxCollateralAssetsIn The maximum amount of collateral asset that can be deposited
      */
-    function maxDeposit(address owner) external view returns (uint256 maxCollateralAssets);
+    function maxDeposit(address owner) external view returns (uint256 maxCollateralAssetsIn);
 
     /**
      * @notice Gets the maximum amount of collateral asset that can be received by unwinding deposit
      * @param owner The address to check balances for
-     * @return maxCollateralAssetAmountOut The maximum amount of collateral asset that can be received
+     * @return maxCollateralAssetsOut The maximum amount of collateral asset that can be received
      */
-    function maxUnwindDeposit(address owner) external view returns (uint256 maxCollateralAssetAmountOut);
+    function maxUnwindDeposit(address owner) external view returns (uint256 maxCollateralAssetsOut);
 
     /**
      * @notice Gets the maximum amount of CPT and CST tokens that can be burned in unwind mint
@@ -156,142 +164,171 @@ interface IPoolShare {
     /**
      * @notice Returns the maximum amount of assets that could be transferred from `owner` through `withdraw`.
      * @param owner The address of the owner
-     * @return maxCollateralAssets The maximum amount of assets that could be withdrawn
+     * @return maxCollateralAssetsOut The maximum amount of assets that could be withdrawn
      */
-    function maxWithdraw(address owner) external view returns (uint256 maxCollateralAssets);
+    function maxWithdraw(address owner) external view returns (uint256 maxCollateralAssetsOut);
 
     /**
      * @notice Returns the maximum amount of reference assets that could be transferred from `owner` through `withdraw`.
      * @param owner The address of the owner
-     * @return maxReferenceAssets The maximum amount of reference assets that could be withdrawn
+     * @return maxReferenceAssetsOut The maximum amount of reference assets that could be withdrawn
      */
-    function maxWithdrawOther(address owner) external view returns (uint256 maxReferenceAssets);
+    function maxWithdrawOther(address owner) external view returns (uint256 maxReferenceAssetsOut);
 
     /**
      * @notice Returns the maximum amount of CST shares that could be transferred from `owner` through `exercise` and not cause a revert.
      * @param owner The address of the owner
-     * @return maxCstShares The maximum amount of CST shares that could be used in exercise
+     * @return maxCstSharesIn The maximum amount of CST shares that could be used in exercise
      */
-    function maxExercise(address owner) external view returns (uint256 maxCstShares);
+    function maxExercise(address owner) external view returns (uint256 maxCstSharesIn);
 
     /**
      * @notice Returns the maximum amount of reference assets that could be used as compensation in `exercise` and not cause a revert.
      * @param owner The address of the owner
-     * @return maxReferenceAssets The maximum amount of reference assets that could be used as compensation in exercise
+     * @return maxReferenceAssetsIn The maximum amount of reference assets that could be used as compensation in exercise
      */
-    function maxExerciseOther(address owner) external view returns (uint256 maxReferenceAssets);
+    function maxExerciseOther(address owner) external view returns (uint256 maxReferenceAssetsIn);
 
     /**
      * @notice Returns the maximum amount of CPT shares that could be transferred from `owner` through `redeem` and not cause a revert.
      * @param owner The address of the owner
-     * @return maxShares The maximum amount of CPT shares that could be redeemed
+     * @return maxCptSharesIn The maximum amount of CPT shares that could be redeemed
      */
-    function maxRedeem(address owner) external view returns (uint256 maxShares);
+    function maxRedeem(address owner) external view returns (uint256 maxCptSharesIn);
 
     /**
      * @notice Returns the maximum amount of collateral assets that could be transferred from `owner` through `swap` and not cause a revert.
      * @param owner The address of the owner
-     * @return maxAssets The maximum amount of collateral assets that could be transferred through swap
+     * @return maxCollateralAssetsOut The maximum amount of collateral assets that could be transferred through swap
      */
-    function maxSwap(address owner) external view returns (uint256 maxAssets);
+    function maxSwap(address owner) external view returns (uint256 maxCollateralAssetsOut);
 
     /**
      * @notice Returns the maximum amount of CST shares that could be transferred through `unwindExercise` and not cause a revert.
-     * @param receiver The address that would receive the unlocked tokens (not used for calculation)
-     * @return maxShares The maximum amount of CST shares that could be unlocked through unwindExercise
+     * @param owner The address of the owner (not used for calculation)
+     * @return maxCstSharesOut The maximum amount of CST shares that could be unlocked through unwindExercise
      */
-    function maxUnwindExercise(address receiver) external view returns (uint256 maxShares);
+    function maxUnwindExercise(address owner) external view returns (uint256 maxCstSharesOut);
 
     /**
      * @notice Returns the maximum amount of reference assets that would be unlocked through `unwindExercise` and not cause a revert.
-     * @param receiver The address that would receive the unlocked tokens (not used for calculation)
-     * @return maxReferenceAssets The maximum amount of reference assets that would be unlocked through unwindExercise
+     * @param owner The address of the owner (not used for calculation)
+     * @return maxReferenceAssetsOut The maximum amount of reference assets that would be unlocked through unwindExercise
      */
-    function maxUnwindExerciseOther(address receiver) external view returns (uint256 maxReferenceAssets);
+    function maxUnwindExerciseOther(address owner) external view returns (uint256 maxReferenceAssetsOut);
 
     /**
      * @notice Returns the maximum amount of assets that could be transferred through `unwindSwap` and not cause a revert.
-     * @param receiver The address that would receive the unlocked tokens (not used for calculation)
-     * @return maxAmount The maximum amount of collateral assets that could be transferred through unwindSwap
+     * @param owner The address of the owner (not used for calculation)
+     * @return maxCollateralAssetsIn The maximum amount of collateral assets that could be transferred through unwindSwap
      */
-    function maxUnwindSwap(address receiver) external view returns (uint256 maxAmount);
+    function maxUnwindSwap(address owner) external view returns (uint256 maxCollateralAssetsIn);
 
     /**
      * @notice Previews the outcome of exercising CST shares
-     * @param shares The amount of CST shares to exercise
-     * @param compensation The amount of reference asset compensation to provide
-     * @return assets The amount of collateral assets that would be received
-     * @return otherAssetSpent The amount of other asset that would be spent
+     * @param cstSharesIn The amount of CST shares to exercise (must be non-zero)
+     * @return collateralAssetsOut The amount of collateral assets that would be received
+     * @return referenceAssetsIn The amount of reference asset that would be spent
      * @return fee The fee amount that would be charged
      */
-    function previewExercise(uint256 shares, uint256 compensation) external view returns (uint256 assets, uint256 otherAssetSpent, uint256 fee);
+    function previewExercise(uint256 cstSharesIn) external view returns (uint256 collateralAssetsOut, uint256 referenceAssetsIn, uint256 fee);
+
+    /**
+     * @notice Previews the outcome of exercising CST shares
+     * @param referenceAssetsIn The amount of reference asset compensation to provide (must be non-zero)
+     * @return collateralAssetsOut The amount of collateral assets that would be received
+     * @return cstSharesIn The amount of other asset that would be spent
+     * @return fee The fee amount that would be charged
+     */
+    function previewExerciseOther(uint256 referenceAssetsIn) external view returns (uint256 collateralAssetsOut, uint256 cstSharesIn, uint256 fee);
 
     /**
      * @notice Previews the outcome of unwinding an exercise operation
-     * @param shares The amount of CST tokens to mint
-     * @return assetIn The amount of collateral asset that would be required
-     * @return compensationOut The amount of reference asset compensation that would be received
+     * @param cstSharesOut The amount of CST tokens to mint
+     * @return collateralAssetsIn The amount of collateral asset that would be required
+     * @return referenceAssetsOut The amount of reference asset compensation that would be received
+     * @return fee The fee amount that would be charged
      */
-    function previewUnwindExercise(uint256 shares) external view returns (uint256 assetIn, uint256 compensationOut);
+    function previewUnwindExercise(uint256 cstSharesOut) external view returns (uint256 collateralAssetsIn, uint256 referenceAssetsOut, uint256 fee);
+
+    /**
+     * @notice Previews the outcome of unwinding an exercise operation
+     * @param referenceAssetsOut The amount of reference token to mint
+     * @return collateralAssetsIn The amount of collateral asset that would be required
+     * @return cstSharesOut The amount of CST tokens that would be received
+     * @return fee The fee amount that would be charged
+     */
+    function previewUnwindExerciseOther(uint256 referenceAssetsOut) external view returns (uint256 collateralAssetsIn, uint256 cstSharesOut, uint256 fee);
 
     /**
      * @notice Previews the amount of CPT and CST tokens that would be minted for a deposit
-     * @param collateralAssets The amount of collateral asset to deposit
-     * @return outShares The amount of CPT and CST tokens that would be minted
+     * @param collateralAssetsIn The amount of collateral asset to deposit
+     * @return cptAndCstSharesOut The amount of CPT and CST tokens that would be minted
      */
-    function previewDeposit(uint256 collateralAssets) external view returns (uint256 outShares);
+    function previewDeposit(uint256 collateralAssetsIn) external view returns (uint256 cptAndCstSharesOut);
 
     /**
      * @notice Previews the amount of CST shares and reference token compensation that would be required for a swap
-     * @param collateralAssets The exact amount of collateral assets that would be received
-     * @return suppliedCstShares The amount of CST shares that would be locked from msg.sender
-     * @return suppliedReferenceAssets The amount of reference token that would be locked from msg.sender
+     * @param collateralAssetsOut The exact amount of collateral assets that would be received
+     * @return cstSharesIn The amount of CST shares that would be locked from msg.sender
+     * @return referenceAssetsIn The amount of reference token that would be locked from msg.sender
+     * @return fee The fee amount that would be charged
      */
-    function previewSwap(uint256 collateralAssets) external view returns (uint256 suppliedCstShares, uint256 suppliedReferenceAssets);
+    function previewSwap(uint256 collateralAssetsOut) external view returns (uint256 cstSharesIn, uint256 referenceAssetsIn, uint256 fee);
 
     /**
      * @notice Previews the amounts of assets that would be received when redeeming CPT tokens
-     * @param cptShares The amount of CPT tokens to redeem
-     * @return outReferenceAssets The amount of reference asset that would be received
-     * @return outCollateralAssets The amount of collateral asset that would be received
+     * @param cptSharesIn The amount of CPT tokens to redeem
+     * @return referenceAssetsOut The amount of reference asset that would be received
+     * @return collateralAssetsOut The amount of collateral asset that would be received
      */
-    function previewRedeem(uint256 cptShares) external view returns (uint256 outReferenceAssets, uint256 outCollateralAssets);
+    function previewRedeem(uint256 cptSharesIn) external view returns (uint256 referenceAssetsOut, uint256 collateralAssetsOut);
 
     /**
      * @notice Previews the amount of CPT and CST tokens needed to unwind deposit for specific collateral amount
-     * @param collateralAssets The desired amount of collateral asset to receive
-     * @return suppliedShares The amount of CPT and CST tokens that would need to be burned
+     * @param collateralAssetsOut The desired amount of collateral asset to receive
+     * @return cptAndCstSharesIn The amount of CPT and CST tokens that would need to be burned
      */
-    function previewUnwindDeposit(uint256 collateralAssets) external view returns (uint256 suppliedShares);
+    function previewUnwindDeposit(uint256 collateralAssetsOut) external view returns (uint256 cptAndCstSharesIn);
 
     /**
      * @notice Previews the outcome of unwinding a swap operation
-     * @param collateralAssets The amount of CPT tokens to unwind
-     * @return outReferenceAssets The amount of reference asset that would be received
-     * @return outCstShares The amount of CST tokens that would be received
+     * @param collateralAssetsIn The amount of CPT tokens to unwind
+     * @return cstSharesOut The amount of CST tokens that would be received
+     * @return referenceAssetsOut The amount of reference asset that would be received
+     * @return fee The fee amount that would be charged
      */
-    function previewUnwindSwap(uint256 collateralAssets) external view returns (uint256 outReferenceAssets, uint256 outCstShares);
+    function previewUnwindSwap(uint256 collateralAssetsIn) external view returns (uint256 cstSharesOut, uint256 referenceAssetsOut, uint256 fee);
 
     /**
      * @notice Previews the amount of collateral needed to mint specific amounts of CPT and CST tokens
-     * @param shares The desired amount of CPT and CST tokens to mint
-     * @return suppliedCollateralAssets The amount of collateral asset that would be required
+     * @param cptAndCstSharesOut The desired amount of CPT and CST tokens to mint
+     * @return collateralAssetsIn The amount of collateral asset that would be required
      */
-    function previewMint(uint256 shares) external view returns (uint256 suppliedCollateralAssets);
+    function previewMint(uint256 cptAndCstSharesOut) external view returns (uint256 collateralAssetsIn);
 
     /**
      * @notice Previews the amount of collateral that would be received when unwinding mint
-     * @param shares The amount of CPT and CST tokens to burn
-     * @return outCollateralAssets The amount of collateral asset that would be received
+     * @param cptAndCstSharesIn The amount of CPT and CST tokens to burn
+     * @return collateralAssetsOut The amount of collateral asset that would be received
      */
-    function previewUnwindMint(uint256 shares) external view returns (uint256 outCollateralAssets);
+    function previewUnwindMint(uint256 cptAndCstSharesIn) external view returns (uint256 collateralAssetsOut);
 
     /**
      * @notice Previews the amount of CPT tokens needed to withdraw specific amounts of assets
-     * @param collateralAssetOut The desired amount of collateral asset to withdraw
-     * @param referenceAssetOut The desired amount of reference asset to withdraw
-     * @return sharesIn The amount of CPT tokens that would need to be burned
-     * @return actualReferenceAssetOut The actual amount of reference asset that would be withdrawn
+     * @param collateralAssetsOut The desired amount of collateral asset to withdraw
+     * @return cptSharesIn The amount of CPT tokens that would need to be burned
+     * @return actualCollateralAssetsOut The actual amount of collateral asset that would be withdrawn
+     * @return actualReferenceAssetsOut The actual amount of reference asset that would be withdrawn
      */
-    function previewWithdraw(uint256 collateralAssetOut, uint256 referenceAssetOut) external view returns (uint256 sharesIn, uint256 actualReferenceAssetOut);
+    function previewWithdraw(uint256 collateralAssetsOut) external view returns (uint256 cptSharesIn, uint256 actualCollateralAssetsOut, uint256 actualReferenceAssetsOut);
+
+    /**
+     * @notice Previews the amount of CPT tokens needed to withdraw specific amounts of assets
+     * @param referenceAssetsOut The desired amount of reference asset to withdraw
+     * @return cptSharesIn The amount of CPT tokens that would need to be burned
+     * @return actualCollateralAssetsOut The actual amount of collateral asset that would be withdrawn
+     * @return actualReferenceAssetsOut The actual amount of reference asset that would be withdrawn
+     */
+    function previewWithdrawOther(uint256 referenceAssetsOut) external view returns (uint256 cptSharesIn, uint256 actualCollateralAssetsOut, uint256 actualReferenceAssetsOut);
 }
