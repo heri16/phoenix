@@ -16,3 +16,6 @@
 [submodule "lib/bundler3"]
 	path = lib/bundler3
 	url = https://github.com/morpho-org/bundler3
+[submodule "lib/morpho-blue-oracles"]
+	path = lib/morpho-blue-oracles
+	url = git@github.com:morpho-org/morpho-blue-oracles

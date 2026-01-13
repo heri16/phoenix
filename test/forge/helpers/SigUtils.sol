@@ -1,0 +1,144 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.30;
+
+import "forge-std/Test.sol";
+
+contract SigUtils is Test {
+    // keccak256("Permit(address owner,address spender,uint256 value,uint256 nonce,uint256 deadline,bytes32 functionHash)");
+    bytes32 public constant CUSTOM_PERMIT_TYPEHASH = 0x80b24e394b7fdf35ccd5eb8f755150927489ac082064fc8f3e9fb140f57f3725;
+
+    // keccak256("Permit(address owner,address spender,uint256 value,uint256 nonce,uint256 deadline)");
+    bytes32 public constant PERMIT_TYPEHASH = 0x6e71edae12b1b97f4d1f60370fef10105fa2faae0126114a169c64845d6126c9;
+
+    bytes32 public constant TOKEN_PERMISSIONS_TYPEHASH = keccak256("TokenPermissions(address token,uint256 amount)");
+
+    bytes32 internal constant PERMIT_DETAILS_TYPEHASH =
+        keccak256("PermitDetails(address token,uint160 amount,uint48 expiration,uint48 nonce)");
+
+    bytes32 public constant PERMIT_TRANSFER_FROM_TYPEHASH = keccak256(
+        "PermitTransferFrom(TokenPermissions permitted,address spender,uint256 nonce,uint256 deadline)TokenPermissions(address token,uint256 amount)"
+    );
+
+    struct CustomPermit {
+        address owner;
+        address spender;
+        uint256 value;
+        uint256 nonce;
+        uint256 deadline;
+        bytes32 functionHash;
+    }
+
+    struct Permit {
+        address owner;
+        address spender;
+        uint256 value;
+        uint256 nonce;
+        uint256 deadline;
+    }
+
+    // computes the hash of a permit
+    function getCutomStructHash(CustomPermit memory _permit) internal pure returns (bytes32) {
+        return keccak256(
+            abi.encode(
+                CUSTOM_PERMIT_TYPEHASH,
+                _permit.owner,
+                _permit.spender,
+                _permit.value,
+                _permit.nonce,
+                _permit.deadline,
+                _permit.functionHash
+            )
+        );
+    }
+
+    // computes the hash of a permit
+    function getStructHash(Permit memory _permit) internal pure returns (bytes32) {
+        return keccak256(
+            abi.encode(PERMIT_TYPEHASH, _permit.owner, _permit.spender, _permit.value, _permit.nonce, _permit.deadline)
+        );
+    }
+
+    // computes the hash of the fully encoded EIP-712 message for the domain, which can be used to recover the signer
+    function getCustomTypedDataHash(CustomPermit memory _permit, bytes32 DOMAIN_SEPARATOR)
+        internal
+        pure
+        returns (bytes32)
+    {
+        return keccak256(abi.encodePacked("\x19\x01", DOMAIN_SEPARATOR, getCutomStructHash(_permit)));
+    }
+
+    // computes the hash of the fully encoded EIP-712 message for the domain, which can be used to recover the signer
+    function getTypedDataHash(Permit memory _permit, bytes32 DOMAIN_SEPARATOR) internal pure returns (bytes32) {
+        return keccak256(abi.encodePacked("\x19\x01", DOMAIN_SEPARATOR, getStructHash(_permit)));
+    }
+
+    function getCustomPermit(
+        address owner,
+        address spender,
+        uint256 value,
+        uint256 nonce,
+        uint256 deadline,
+        uint256 pk,
+        bytes32 DOMAIN_SEPARATOR,
+        string memory functionName
+    ) internal pure returns (bytes memory) {
+        bytes32 functionHash = keccak256(bytes(functionName));
+        CustomPermit memory permit = CustomPermit({
+            owner: owner, spender: spender, value: value, nonce: nonce, deadline: deadline, functionHash: functionHash
+        });
+
+        bytes32 digest = getCustomTypedDataHash(permit, DOMAIN_SEPARATOR);
+
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, digest);
+
+        return abi.encodePacked(r, s, v);
+    }
+
+    function getPermit(
+        address owner,
+        address spender,
+        uint256 value,
+        uint256 nonce,
+        uint256 deadline,
+        uint256 pk,
+        bytes32 DOMAIN_SEPARATOR
+    ) internal pure returns (bytes memory) {
+        Permit memory permit = Permit({owner: owner, spender: spender, value: value, nonce: nonce, deadline: deadline});
+
+        bytes32 digest = getTypedDataHash(permit, DOMAIN_SEPARATOR);
+
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, digest);
+
+        return abi.encodePacked(r, s, v);
+    }
+
+    /// @notice Generates a Permit2 signature for PermitTransferFrom
+    /// @param token The token address being permitted
+    /// @param amount The maximum amount permitted
+    /// @param nonce The nonce for replay protection
+    /// @param deadline The deadline for the permit
+    /// @param spender The address that will call permitTransferFrom (typically the adapter)
+    /// @param pk The private key to sign with
+    /// @param domainSeparator The EIP-712 domain separator of the Permit2 contract
+    function getPermitTransferFromSignature(
+        address token,
+        uint256 amount,
+        uint256 nonce,
+        uint256 deadline,
+        address spender,
+        uint256 pk,
+        bytes32 domainSeparator
+    ) internal pure returns (bytes memory) {
+        bytes32 tokenPermissions = keccak256(abi.encode(TOKEN_PERMISSIONS_TYPEHASH, token, amount));
+        bytes32 msgHash = keccak256(
+            abi.encodePacked(
+                "\x19\x01",
+                domainSeparator,
+                keccak256(abi.encode(PERMIT_TRANSFER_FROM_TYPEHASH, tokenPermissions, spender, nonce, deadline))
+            )
+        );
+
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, msgHash);
+        return abi.encodePacked(r, s, v);
+    }
+}

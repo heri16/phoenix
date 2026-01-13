@@ -1,3 +1,6 @@
+# Testnet deployments
+broadcast/*/11155111/**/*
+
 # Logs
 logs
 *.log
@@ -20,11 +23,8 @@ node_modules/
 .yarn-integrity
 
 # dotenv environment variable files
-.env
-.env.development.local
-.env.test.local
-.env.production.local
-.env.local
+.env*
+!.env*.example
 
 # solidity-coverage files
 /coverage
@@ -34,6 +34,7 @@ node_modules/
 # forge
 cache_forge
 out
+out-production
 
 # other
 /.idea/
@@ -43,3 +44,4 @@ out
 .claude/
 AGENTS.md
 slither.db.json
+.cursorignore

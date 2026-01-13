@@ -1,34 +1,35 @@
 [profile.default]
 src = "contracts"
-evm_version = "cancun"
+evm_version = "paris"
 out = "out"
-libs = ["node_modules", "lib"]
-test = "test/new"
+libs = ["lib"]
+test = "test"
 cache_path = "cache_forge"
-ffi = true
-ast = true
 build_info = true
 extra_output = ["storageLayout"]
 optimizer = true
-optimizer_runs = 200
+optimizer_runs = 1
 solc_version = "0.8.30"
-fs_permissions = [{ access = "read", path = "./" }]
-sparse_mode = true
+bytecode_hash = "none"
+cbor_metadata = false
+create2_deployer = "0x914d7Fec6aaC8cd542e72Bca78B30650d45643d7" # Safe Singleton Factory address
 ignored_warnings_from = ["test", "script"]
+# File system permissions for Config contract to read/write TOML files
+fs_permissions = [{ access = "read-write", path = "./config/" }]
 
-
-# Compile only the production code with IR see https://github.com/foundry-rs/forge-std/issues/321#issuecomment-1462351522
-[profile.optimized]
-out = "optimized-out"
+# Production profile for deployment with optimized IR compilation
+[profile.production]
+out = "out-production"
 test = "test"
 via_ir = true
-optimizer = true
-optimizer_runs = 200
 
 [fmt]
-single_line_statement_blocks = "single"
 sort_imports = true
-line_length = 300
 int_types = "long"
-quote_stle = "double" 
+quote_style = "double" 
 number_underscore = "thousands"
+
+# --snip--
+[rpc_endpoints]
+sepolia = "${SEPOLIA_RPC_URL}"
+mainnet = "${MAINNET_RPC_URL}"

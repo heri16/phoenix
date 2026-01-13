@@ -4,22 +4,42 @@ pragma solidity ^0.8.30;
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {ERC20Burnable} from "@openzeppelin/contracts/token/ERC20/extensions/ERC20Burnable.sol";
-import {IPoolManager} from "contracts/interfaces/IPoolManager.sol";
+import {IPoolManager, Market, MarketId} from "contracts/interfaces/IPoolManager.sol";
 import {IPoolShare} from "contracts/interfaces/IPoolShare.sol";
 import {ISwapRate} from "contracts/interfaces/ISwapRate.sol";
-import {Market, MarketId} from "contracts/libraries/Market.sol";
 import {ERC20Permit} from "openzeppelin-contracts/contracts/token/ERC20/extensions/ERC20Permit.sol";
 
-/**
- * @title PoolShare Contract
- * @author Cork Team
- * @notice Contract for implementing assets like Swap Token/Principal Token etc
- */
+//             CCCCCCCCC  C
+//          CCCCCCCCCCC   C
+//       CCCCCCCCCCCCCC   C
+//     CCCCCCCCCCCCCCCC   C        CCCCCC                    CCCCCCCCCCCCCCC             CCCCCCCCCCCCCCC     CCCCCCCCCCCCCCCCCCCC     CCCCCCCCCCC     CCCCCCCCCC
+//    CCCCCCCCCCCCCCCCC CC       CCCCCC  C               CCCCCCCCCCCCCCCCCC  CCC     CCCCCCCCCCCCCCCCCC  CC  CCCCCCCCCCCCCCCCCCCC  CC CCCCCCC   C    CCCCCCCC  CC
+//   CCCCCCCCCCCCCCCC CC       CCCCCCCCC  C            CCCCCCCCCCCCCCCCCCCCC    CC CCCCCCCCCCCCCCCCCCCCCC   CCCCCCCCCCCCCCCCCCCCCCC  CCCCCCCC   C    CCCCCCCC  CC
+//  CCCCCCCCCCCCCCC CC        CCCCCCCCCCC  C          CCCCCCCCCCCCCCCCCCCCCCCC    CCCCCCCCCCCCCCCCCCCCCCCC   CCCCCCCCCCCCCCCCCCCCCCC  CCCCCCC   C  CCCCCCCCCC  CC
+// CCCCCCCCCCCCCC CC        CCCCCCCCCCCCC  CC        CCCCCCCCC    CC  CCCCCCCCC  CCCCCCCCC   CC   CCCCCCCCC  CCCCCCC    C   CCCCCCCC  CCCCCCC   CCCCCCCCCCC  CC
+// CCCCCCCCCCCC  C         CCCCCCCCCCCCCCC  C        CCCCCCCC    CC     CCCCCCCCCCCCCCCC    CC     CCCCCCCC  CCCCCCC    C    CCCCCCC  CCCCCCC  CCCCCCCCCC  CC
+// CCCCCCCCCCCC  C         CCCCCCCCCCCCCCC  C       CCCCCCCC    CC              CCCCCCCC   CC       CCCCCCCC CCCCCCC    C   CCCCCCCC  CCCCCCC  CCCCCCCC   C
+// CCCCCCCCCCCC  C         CCCCCCCCCCCCCCC   C      CCCCCCCC    C               CCCCCCCC   C        CCCCCCCC CCCCCCCCCCCCCCCCCCCCCCC  CCCCCCC  CCCCCCCC   C
+// CCCCCCCCCCCC  C         CCCCCCCCCCCCCCC  C       CCCCCCCC    CC              CCCCCCCC   CC       CCCCCCCC CCCCCCCCCCCCCCCCCCCCC   CCCCCCCC  CCCCCCCC   CC
+// CCCCCCCCCCCC  C         CCCCCCCCCCCCCCC  C        CCCCCCCC    CC     CCCCCCCCCCCCCCCC    CC     CCCCCCCC  CCCCCCCCCCCCCCCCCCC   CC CCCCCCC  CCCCCCCCCC   C
+// CCCCCCCCCCCCCC CC        CCCCCCCCCCCCC  CC        CCCCCCCCC    CCC CCCCCCCCC  CCCCCCCCC   CCC  CCCCCCCCC  CCCCCCCCCCCCCCCCCCCCC   CCCCCCCC   CCCCCCCCCCC  CC
+//  CCCCCCCCCCCCCCC CC        CCCCCCCCCCC  C          CCCCCCCCCCCCCCCCCCCCCCCC   CCCCCCCCCCCCCCCCCCCCCCCCC   CCCCCCC    C CCCCCCCCCC  CCCCCCC   C  CCCCCCCCCC  CC
+//   CCCCCCCCCCCCCCCC CC        CCCCCCCC  C            CCCCCCCCCCCCCCCCCCCCC    CC CCCCCCCCCCCCCCCCCCCCCC  CCCCCCCCC    C   CCCCCCCC  CCCCCCC   C    CCCCCCCC  CC
+//    CCCCCCCCCCCCCCCC  CC        CCCCC CC                CCCCCCCCCCCCCCCC   CC      CCCCCCCCCCCCCCCCC  CCC  CCCCCCC    C   CCCCCCCC  CCCCCCC   C    CCCCCCCC  CC
+//     CCCCCCCCCCCCCCCC   C        CCCCCC                    CCCCCCCCCCCCCCC             CCCCCCCCCCCCCC      CCCCCCCCCCCC    CCCCCCCCCCCCCCCCCCCC     CCCCCCCCCC
+//       CCCCCCCCCCCCCC   C
+//          CCCCCCCCCCC   C
+//              CCCCCCCCCCC
+
+/// @title PoolShare
+/// @author Cork Team
+/// @custom:security-contact security@cork.tech
+/// @notice Contract for implementing Cork assets (Swap Tokens and Principal Tokens).
 contract PoolShare is ERC20Burnable, ERC20Permit, Ownable, ISwapRate, IPoolShare {
     string public pairName;
 
-    // poolId, poolManager, factory needs to adhere to IPoolShare interface without extra boilerplate
-    // so we keep the variable camel case rather than SCREAMING_CASE
+    // poolId, poolManager, factory need to adhere to IPoolShare interface without extra boilerplate
+    // so we keep the variable camel case rather than SCREAMING_CASE.
     MarketId public immutable poolId;
 
     IPoolManager public immutable poolManager;
@@ -32,9 +52,8 @@ contract PoolShare is ERC20Burnable, ERC20Permit, Ownable, ISwapRate, IPoolShare
     ///=================== MODIFIERS ========================///
     ///======================================================///
 
-    modifier onlyFactory() {
-        require(_msgSender() == factory, OwnableUnauthorizedAccount(_msgSender()));
-
+    modifier onlyCorkPoolManager() {
+        require(msg.sender == address(poolManager), NotCorkPoolManager());
         _;
     }
 
@@ -42,7 +61,13 @@ contract PoolShare is ERC20Burnable, ERC20Permit, Ownable, ISwapRate, IPoolShare
     ///================== CONSTRUCTOR =======================///
     ///======================================================///
 
-    constructor(IPoolShare.ConstructorParams memory params) ERC20(params.pairName, params.symbol) ERC20Permit(params.pairName) Ownable(params.poolManager) {
+    constructor(IPoolShare.ConstructorParams memory params)
+        ERC20(params.pairName, params.symbol)
+        ERC20Permit(params.pairName)
+        Ownable(params.ensOwner)
+    {
+        require(params.ensOwner != address(0), ZeroAddress());
+
         pairName = params.pairName;
         poolManager = IPoolManager(params.poolManager);
         poolId = params.poolId;
@@ -60,13 +85,9 @@ contract PoolShare is ERC20Burnable, ERC20Permit, Ownable, ISwapRate, IPoolShare
         return poolManager.swapRate(poolId);
     }
 
-    /**
-     * @notice Provides Collateral Assets & Reference Assets assets reserves for the shares contract
-     * @param collateralAsset The Collateral Assets reserve amount for shares contract.
-     * @param referenceAsset The Reference Assets reserve amount for shares contract.
-     */
-    function getReserves() external view returns (uint256 collateralAsset, uint256 referenceAsset) {
-        (collateralAsset, referenceAsset) = poolManager.assets(poolId);
+    /// @inheritdoc IPoolShare
+    function getReserves() external view returns (uint256 collateralAssets, uint256 referenceAssets) {
+        (collateralAssets, referenceAssets) = poolManager.assets(poolId);
     }
 
     /// @inheritdoc IPoolShare
@@ -86,39 +107,24 @@ contract PoolShare is ERC20Burnable, ERC20Permit, Ownable, ISwapRate, IPoolShare
     ///================== CORE FUNCTIONS ====================///
     ///======================================================///
 
-    /**
-     * @notice mints `amount` number of tokens to `to` address
-     * @param to address of receiver
-     * @param amount number of tokens to be minted
-     */
-    function mint(address to, uint256 amount) public onlyOwner {
+    /// @inheritdoc IPoolShare
+    function mint(address to, uint256 amount) public onlyCorkPoolManager {
         _mint(to, amount);
     }
 
     /// @inheritdoc ERC20Burnable
-    function burn(uint256 amount) public override onlyOwner {
+    function burn(uint256 amount) public override onlyCorkPoolManager {
         _burn(_msgSender(), amount);
     }
 
-    /**
-     * @notice burns `amount` number of tokens from `owner`
-     * @param owner address of the owner to be burned from
-     * @param amount number of tokens to be burned
-     */
-    function burnFrom(address owner, uint256 amount) public override onlyOwner {
+    /// @inheritdoc ERC20Burnable
+    function burnFrom(address owner, uint256 amount) public override onlyCorkPoolManager {
         _spendAllowance(owner, _msgSender(), amount);
         _burn(owner, amount);
     }
 
-    /**
-     * @notice burns `amount` number of tokens from `owner` by spending the allowance that `owner` has to `sender`  .
-     * - This operation can only be done by CorkPoolManager
-     * - if sender == owner, it will treat it as a regular `burn`
-     * @param sender The address of the sender
-     * @param owner address of the owner to be burned from
-     * @param amount number of tokens to be burned
-     */
-    function burnFrom(address sender, address owner, uint256 amount) public onlyOwner {
+    /// @inheritdoc IPoolShare
+    function burnFrom(address sender, address owner, uint256 amount) public onlyCorkPoolManager {
         // we branch here because in case sender == owner, who would in the right mind give allowance
         // to themselves. so it will treat it as a regular `burn`
         if (sender != owner) _spendAllowance(owner, sender, amount);
@@ -126,15 +132,8 @@ contract PoolShare is ERC20Burnable, ERC20Permit, Ownable, ISwapRate, IPoolShare
         _burn(owner, amount);
     }
 
-    /**
-     * @notice Transfer `amount` of token to address `to` on behalf of `owner` by spending the allowance that `owner` has to `sender`  .
-     * - This operation can only be done by CorkPoolManager
-     * @param sender The address of the sender
-     * @param owner The address of the owner
-     * @param to The address of the receiver
-     * @param amount The amount of tokens to transfer
-     */
-    function transferFrom(address sender, address owner, address to, uint256 amount) public onlyOwner {
+    /// @inheritdoc IPoolShare
+    function transferFrom(address sender, address owner, address to, uint256 amount) public onlyCorkPoolManager {
         if (sender != owner) _spendAllowance(owner, sender, amount);
 
         _transfer(owner, to, amount);
@@ -145,22 +144,38 @@ contract PoolShare is ERC20Burnable, ERC20Permit, Ownable, ISwapRate, IPoolShare
     ///======================================================///
 
     /// @inheritdoc IPoolShare
-    function emitDeposit(address sender, address receiver, uint256 assets, uint256 shares) external onlyOwner {
+    function emitDeposit(address sender, address receiver, uint256 assets, uint256 shares)
+        external
+        onlyCorkPoolManager
+    {
         emit Deposit(sender, receiver, assets, shares);
     }
 
     /// @inheritdoc IPoolShare
-    function emitWithdraw(address sender, address receiver, address owner, uint256 assets, uint256 shares) external onlyOwner {
+    function emitWithdraw(address sender, address receiver, address owner, uint256 assets, uint256 shares)
+        external
+        onlyCorkPoolManager
+    {
         emit Withdraw(sender, receiver, owner, assets, shares);
     }
 
     /// @inheritdoc IPoolShare
-    function emitWithdrawOther(address sender, address receiver, address owner, address asset, uint256 assets, uint256 shares) external onlyOwner {
+    function emitWithdrawOther(
+        address sender,
+        address receiver,
+        address owner,
+        address asset,
+        uint256 assets,
+        uint256 shares
+    ) external onlyCorkPoolManager {
         emit WithdrawOther(sender, receiver, owner, asset, assets, shares);
     }
 
     /// @inheritdoc IPoolShare
-    function emitDepositOther(address sender, address owner, address asset, uint256 assets, uint256 shares) external onlyOwner {
+    function emitDepositOther(address sender, address owner, address asset, uint256 assets, uint256 shares)
+        external
+        onlyCorkPoolManager
+    {
         emit DepositOther(sender, owner, asset, assets, shares);
     }
 
@@ -238,22 +253,38 @@ contract PoolShare is ERC20Burnable, ERC20Permit, Ownable, ISwapRate, IPoolShare
     ///======================================================///
 
     /// @inheritdoc IPoolShare
-    function previewExercise(uint256 cstSharesIn) public view returns (uint256 collateralAssetsOut, uint256 referenceAssetsIn, uint256 fee) {
+    function previewExercise(uint256 cstSharesIn)
+        public
+        view
+        returns (uint256 collateralAssetsOut, uint256 referenceAssetsIn, uint256 fee)
+    {
         (collateralAssetsOut, referenceAssetsIn, fee) = poolManager.previewExercise(poolId, cstSharesIn);
     }
 
     /// @inheritdoc IPoolShare
-    function previewExerciseOther(uint256 referenceAssetsIn) public view returns (uint256 collateralAssetsOut, uint256 cstSharesIn, uint256 fee) {
+    function previewExerciseOther(uint256 referenceAssetsIn)
+        public
+        view
+        returns (uint256 collateralAssetsOut, uint256 cstSharesIn, uint256 fee)
+    {
         (collateralAssetsOut, cstSharesIn, fee) = poolManager.previewExerciseOther(poolId, referenceAssetsIn);
     }
 
     /// @inheritdoc IPoolShare
-    function previewUnwindExercise(uint256 cstSharesOut) public view returns (uint256 collateralAssetsIn, uint256 referenceAssetsOut, uint256 fee) {
+    function previewUnwindExercise(uint256 cstSharesOut)
+        public
+        view
+        returns (uint256 collateralAssetsIn, uint256 referenceAssetsOut, uint256 fee)
+    {
         (collateralAssetsIn, referenceAssetsOut, fee) = poolManager.previewUnwindExercise(poolId, cstSharesOut);
     }
 
     /// @inheritdoc IPoolShare
-    function previewUnwindExerciseOther(uint256 referenceAssetsOut) public view returns (uint256 collateralAssetsIn, uint256 cstSharesOut, uint256 fee) {
+    function previewUnwindExerciseOther(uint256 referenceAssetsOut)
+        public
+        view
+        returns (uint256 collateralAssetsIn, uint256 cstSharesOut, uint256 fee)
+    {
         (collateralAssetsIn, cstSharesOut, fee) = poolManager.previewUnwindExerciseOther(poolId, referenceAssetsOut);
     }
 
@@ -263,12 +294,20 @@ contract PoolShare is ERC20Burnable, ERC20Permit, Ownable, ISwapRate, IPoolShare
     }
 
     /// @inheritdoc IPoolShare
-    function previewSwap(uint256 collateralAssetsOut) public view returns (uint256 cstSharesIn, uint256 referenceAssetsIn, uint256 fee) {
+    function previewSwap(uint256 collateralAssetsOut)
+        public
+        view
+        returns (uint256 cstSharesIn, uint256 referenceAssetsIn, uint256 fee)
+    {
         (cstSharesIn, referenceAssetsIn, fee) = poolManager.previewSwap(poolId, collateralAssetsOut);
     }
 
     /// @inheritdoc IPoolShare
-    function previewRedeem(uint256 cptSharesIn) public view returns (uint256 referenceAssetsOut, uint256 collateralAssetsOut) {
+    function previewRedeem(uint256 cptSharesIn)
+        public
+        view
+        returns (uint256 referenceAssetsOut, uint256 collateralAssetsOut)
+    {
         (referenceAssetsOut, collateralAssetsOut) = poolManager.previewRedeem(poolId, cptSharesIn);
     }
 
@@ -278,7 +317,11 @@ contract PoolShare is ERC20Burnable, ERC20Permit, Ownable, ISwapRate, IPoolShare
     }
 
     /// @inheritdoc IPoolShare
-    function previewUnwindSwap(uint256 collateralAssetsIn) public view returns (uint256 cstSharesOut, uint256 referenceAssetsOut, uint256 fee) {
+    function previewUnwindSwap(uint256 collateralAssetsIn)
+        public
+        view
+        returns (uint256 cstSharesOut, uint256 referenceAssetsOut, uint256 fee)
+    {
         (cstSharesOut, referenceAssetsOut, fee) = poolManager.previewUnwindSwap(poolId, collateralAssetsIn);
     }
 
@@ -293,12 +336,22 @@ contract PoolShare is ERC20Burnable, ERC20Permit, Ownable, ISwapRate, IPoolShare
     }
 
     /// @inheritdoc IPoolShare
-    function previewWithdraw(uint256 collateralAssetsOut) external view returns (uint256 cptSharesIn, uint256 actualCollateralAssetsOut, uint256 actualReferenceAssetsOut) {
-        (cptSharesIn, actualCollateralAssetsOut, actualReferenceAssetsOut) = poolManager.previewWithdraw(poolId, collateralAssetsOut);
+    function previewWithdraw(uint256 collateralAssetsOut)
+        external
+        view
+        returns (uint256 cptSharesIn, uint256 actualCollateralAssetsOut, uint256 actualReferenceAssetsOut)
+    {
+        (cptSharesIn, actualCollateralAssetsOut, actualReferenceAssetsOut) =
+            poolManager.previewWithdraw(poolId, collateralAssetsOut);
     }
 
     /// @inheritdoc IPoolShare
-    function previewWithdrawOther(uint256 referenceAssetsOut) external view returns (uint256 cptSharesIn, uint256 actualCollateralAssetsOut, uint256 actualReferenceAssetsOut) {
-        (cptSharesIn, actualCollateralAssetsOut, actualReferenceAssetsOut) = poolManager.previewWithdrawOther(poolId, referenceAssetsOut);
+    function previewWithdrawOther(uint256 referenceAssetsOut)
+        external
+        view
+        returns (uint256 cptSharesIn, uint256 actualCollateralAssetsOut, uint256 actualReferenceAssetsOut)
+    {
+        (cptSharesIn, actualCollateralAssetsOut, actualReferenceAssetsOut) =
+            poolManager.previewWithdrawOther(poolId, referenceAssetsOut);
     }
 }

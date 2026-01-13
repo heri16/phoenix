@@ -1,38 +1,33 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 // Source: Morpho Bundler3
 // URL: https://github.com/morpho-org/bundler3/tree/4887f33299ba6e60b54a51237b16e7392dceeb97
+// Modified by: Cork Protocol Inc.
+// Modification Date: 07/12/2025
+// This file has been modified from the original source.
+
 pragma solidity ^0.8.28;
 
-import {IWNative} from "../interfaces/IWNative.sol";
-import {MathRayLib} from "../libraries/MathRayLib.sol";
-import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
-import {Address, CoreAdapter, ErrorsLib, IERC20, SafeERC20} from "bundler3/adapters/CoreAdapter.sol";
-import {Permit2Lib} from "permit2/src/libraries/Permit2Lib.sol";
-import {SafeCast160} from "permit2/src/libraries/SafeCast160.sol";
+import {IERC4626} from "bundler3-oz/interfaces/IERC4626.sol";
+import {Permit2Lib} from "bundler3-permit2/libraries/Permit2Lib.sol";
+import {SafeCast160} from "bundler3-permit2/libraries/SafeCast160.sol";
+import {MathRayLib} from "bundler3/libraries/MathRayLib.sol";
+import {
+    Address,
+    CoreAdapter,
+    ErrorsLib,
+    IERC20,
+    SafeERC20
+} from "contracts/periphery/bundler3/adapters/CoreAdapter.sol";
 
-/// @custom:security-contact security@morpho.org
+/// @custom:security-contact security@cork.tech
 /// @notice Chain agnostic adapter contract n°1.
 contract GeneralAdapter1 is CoreAdapter {
     using SafeCast160 for uint256;
     using MathRayLib for uint256;
 
-    /* IMMUTABLES */
+    /// CONSTRUCTOR
 
-    /// @dev The address of the wrapped native token.
-    // slither-disable-next-line naming-convention
-    IWNative public immutable WRAPPED_NATIVE;
-
-    /* CONSTRUCTOR */
-
-    /// @param bundler3 The address of the Bundler3 contract.
-    /// @param wNative The address of the canonical native token wrapper.
-    constructor(address bundler3, address wNative) CoreAdapter(bundler3) {
-        require(wNative != address(0), ErrorsLib.ZeroAddress());
-
-        WRAPPED_NATIVE = IWNative(wNative);
-    }
-
-    /* ERC4626 ACTIONS */
+    /// ERC4626 ACTIONS
 
     /// @notice Mints shares of an ERC4626 vault.
     /// @dev Underlying tokens must have been previously sent to the adapter.
@@ -41,7 +36,10 @@ contract GeneralAdapter1 is CoreAdapter {
     /// @param shares The amount of vault shares to mint.
     /// @param maxSharePriceE27 The maximum amount of assets to pay to get 1 share, scaled by 1e27.
     /// @param receiver The address to which shares will be minted.
-    function erc4626Mint(address vault, uint256 shares, uint256 maxSharePriceE27, address receiver) external onlyBundler3 {
+    function erc4626Mint(address vault, uint256 shares, uint256 maxSharePriceE27, address receiver)
+        external
+        onlyBundler3
+    {
         require(receiver != address(0), ErrorsLib.ZeroAddress());
         require(shares != 0, ErrorsLib.ZeroShares());
 
@@ -62,7 +60,10 @@ contract GeneralAdapter1 is CoreAdapter {
     /// @param assets The amount of underlying token to deposit. Pass `type(uint).max` to deposit the adapter's balance.
     /// @param maxSharePriceE27 The maximum amount of assets to pay to get 1 share, scaled by 1e27.
     /// @param receiver The address to which shares will be minted.
-    function erc4626Deposit(address vault, uint256 assets, uint256 maxSharePriceE27, address receiver) external onlyBundler3 {
+    function erc4626Deposit(address vault, uint256 assets, uint256 maxSharePriceE27, address receiver)
+        external
+        onlyBundler3
+    {
         require(receiver != address(0), ErrorsLib.ZeroAddress());
 
         IERC20 underlyingToken = IERC20(IERC4626(vault).asset());
@@ -88,7 +89,10 @@ contract GeneralAdapter1 is CoreAdapter {
     /// @param minSharePriceE27 The minimum number of assets to receive per share, scaled by 1e27.
     /// @param receiver The address that will receive the withdrawn assets.
     /// @param owner The address on behalf of which the assets are withdrawn. Can only be the adapter or the initiator.
-    function erc4626Withdraw(address vault, uint256 assets, uint256 minSharePriceE27, address receiver, address owner) external onlyBundler3 {
+    function erc4626Withdraw(address vault, uint256 assets, uint256 minSharePriceE27, address receiver, address owner)
+        external
+        onlyBundler3
+    {
         require(receiver != address(0), ErrorsLib.ZeroAddress());
         require(owner == address(this) || owner == initiator(), ErrorsLib.UnexpectedOwner());
         require(assets != 0, ErrorsLib.ZeroAmount());
@@ -106,7 +110,10 @@ contract GeneralAdapter1 is CoreAdapter {
     /// @param minSharePriceE27 The minimum number of assets to receive per share, scaled by 1e27.
     /// @param receiver The address that will receive the withdrawn assets.
     /// @param owner The address on behalf of which the shares are redeemed. Can only be the adapter or the initiator.
-    function erc4626Redeem(address vault, uint256 shares, uint256 minSharePriceE27, address receiver, address owner) external onlyBundler3 {
+    function erc4626Redeem(address vault, uint256 shares, uint256 minSharePriceE27, address receiver, address owner)
+        external
+        onlyBundler3
+    {
         require(receiver != address(0), ErrorsLib.ZeroAddress());
         require(owner == address(this) || owner == initiator(), ErrorsLib.UnexpectedOwner());
 
@@ -118,11 +125,11 @@ contract GeneralAdapter1 is CoreAdapter {
         require(assets.rDivDown(shares) >= minSharePriceE27, ErrorsLib.SlippageExceeded());
     }
 
-    /* CALLBACKS */
+    /// CALLBACKS
 
-    /* ACTIONS */
+    /// ACTIONS
 
-    /* PERMIT2 ACTIONS */
+    /// PERMIT2 ACTIONS
 
     /// @notice Transfers with Permit2.
     /// @param token The address of the ERC20 token to transfer.
@@ -139,7 +146,7 @@ contract GeneralAdapter1 is CoreAdapter {
         Permit2Lib.PERMIT2.transferFrom(initiator, receiver, amount.toUint160(), token);
     }
 
-    /* TRANSFER ACTIONS */
+    /// TRANSFER ACTIONS
 
     /// @notice Transfers ERC20 tokens from the initiator.
     /// @notice Initiator must have given sufficient allowance to the Adapter to spend their tokens.
@@ -158,34 +165,7 @@ contract GeneralAdapter1 is CoreAdapter {
         SafeERC20.safeTransferFrom(IERC20(token), initiator, receiver, amount);
     }
 
-    /* WRAPPED NATIVE TOKEN ACTIONS */
+    /// WRAPPED NATIVE TOKEN ACTIONS
 
-    /// @notice Wraps native tokens to wNative.
-    /// @dev Native tokens must have been previously sent to the adapter.
-    /// @param amount The amount of native token to wrap. Pass `type(uint).max` to wrap the adapter's balance.
-    /// @param receiver The account receiving the wrapped native tokens.
-    function wrapNative(uint256 amount, address receiver) external onlyBundler3 {
-        if (amount == type(uint256).max) amount = address(this).balance;
-
-        require(amount != 0, ErrorsLib.ZeroAmount());
-
-        WRAPPED_NATIVE.deposit{value: amount}();
-        if (receiver != address(this)) SafeERC20.safeTransfer(IERC20(address(WRAPPED_NATIVE)), receiver, amount);
-    }
-
-    /// @notice Unwraps wNative tokens to the native token.
-    /// @dev Wrapped native tokens must have been previously sent to the adapter.
-    /// @param amount The amount of wrapped native token to unwrap. Pass `type(uint).max` to unwrap the adapter's
-    /// balance.
-    /// @param receiver The account receiving the native tokens.
-    function unwrapNative(uint256 amount, address receiver) external onlyBundler3 {
-        if (amount == type(uint256).max) amount = WRAPPED_NATIVE.balanceOf(address(this));
-
-        require(amount != 0, ErrorsLib.ZeroAmount());
-
-        WRAPPED_NATIVE.withdraw(amount);
-        if (receiver != address(this)) Address.sendValue(payable(receiver), amount);
-    }
-
-    /* INTERNAL FUNCTIONS */
+    /// INTERNAL FUNCTIONS
 }

@@ -6,7 +6,13 @@
     "rev": "3b22daf606bdef4f119f168c74496f87a90ac8e5"
   },
   "lib/forge-std": {
-    "rev": "83c5d212a01f8950727da4095cdfe2654baccb5b"
+    "rev": "799589bfa97698c2bdf0ba8df4d461b607e36c57"
+  },
+  "lib/morpho-blue-oracles": {
+    "tag": {
+      "name": "v2.0.0",
+      "rev": "07a9a6988b0e1b316ac2fa97ec62ad485fbd0041"
+    }
   },
   "lib/openzeppelin-contracts": {
     "rev": "653963beb27f4dcda72ca2773f0a6bd7b733a6f4"

@@ -1,0 +1,199 @@
+# =====================================================
+# Cork Protocol - Production Configuration
+# =====================================================
+# ⚠️  WARNING: This will deploy to live networks with real funds
+# =====================================================
+# Template for adding new chains:
+#
+#       [<chain-name>]
+#       endpoint_url = "$ {CHAIN_RPC_URL}"
+#
+#       [<chain-name>.address]
+#       # Chain specific contract address
+#       bundler3 = "0x..." # Morpho Bundler3 - chain-specific and used for CorkAdapter initialization (not deployment)
+#       # Create2 dependent
+#       #       Shared configuration addresses across all production chains
+#       #       These should be production multisigs and properly secured addresses
+#       treasury = "0x0000000000000000000000000000000000000000" # GLOBAL
+#       create2_deployer = "0x914d7Fec6aaC8cd542e72Bca78B30650d45643d7" # GLOBAL (Safe Singleton Factory)
+#       # Non Create2 dependent
+#       #       (ok to load from env and change between deployment)
+#       pauser = "$ {PAUSER}"
+#       # Timelock proposer multisigs
+#       upgrade_multisig = "0x..." # Proposer for TimelockUpgrade (Owner of all contracts + DEFAULT_ADMIN_ROLE on upgradeable)
+#       controller_admin_multisig = "0x..." # Proposer for TimelockControllerAdmin (DEFAULT_ADMIN_ROLE on DefaultCorkController)
+#       operational_multisig = "0x..." # Proposer for TimelockOperational (operational roles on DefaultCorkController)
+#
+#       [<chain-name>.bytes32]
+#       constraint_rate_adapter_impl_salt = "0x0000000000000000000000000000000000000000000000000000000000000000" # GLOBAL
+#       constraint_rate_adapter_proxy_salt = "0x0000000000000000000000000000000000000000000000000000000000000000" # GLOBAL
+#       whitelist_manager_impl_salt = "0x0000000000000000000000000000000000000000000000000000000000000000" # GLOBAL
+#       whitelist_manager_proxy_salt = "0x0000000000000000000000000000000000000000000000000000000000000000" # GLOBAL
+#       default_cork_controller_salt = "0x0000000000000000000000000000000000000000000000000000000000000000" # GLOBAL
+#       cork_pool_manager_impl_salt = "0x0000000000000000000000000000000000000000000000000000000000000000" # GLOBAL
+#       cork_pool_manager_proxy_salt = "0x0000000000000000000000000000000000000000000000000000000000000000" # GLOBAL
+#       shares_factory_salt = "0x0000000000000000000000000000000000000000000000000000000000000000" # GLOBAL
+#       cork_adapter_salt = "0x0000000000000000000000000000000000000000000000000000000000000000" # GLOBAL
+#       # Timelock salts
+#       timelock_upgrade_salt = "0x0000000000000000000000000000000000000000000000000000000000000000" # GLOBAL
+#       timelock_controller_admin_salt = "0x0000000000000000000000000000000000000000000000000000000000000000" # GLOBAL
+#       timelock_operational_salt = "0x0000000000000000000000000000000000000000000000000000000000000000" # GLOBAL
+#
+#       [<chain-name>.uint]
+#       # Timelock delays (in seconds) - production values
+#       # 48h = 172800s, 24h = 86400s, 6h = 21600s
+#       timelock_delay_upgrade = 172800
+#       timelock_delay_controller_admin = 86400
+#       timelock_delay_operational = 21600
+#       history_deployment_count = 0
+#
+# =====================================================
+# SALTS
+#
+# Salts MUST be identical across all chains to ensure
+# deterministic addresses for cross-chain deployments.
+
+# =====================================================
+# Ethereum Sepolia
+# =====================================================
+
+[sepolia]
+endpoint_url = "${SEPOLIA_RPC_URL}"
+
+[sepolia.address]
+# Chain specific contract address
+bundler3 = "0xd43EB38E260bF2d6c9B3222559842686B1C303C0"
+# Create2 dependent
+#       Shared configuration addresses across all production chains
+#       These should be production multisigs and properly secured addresses
+create2_deployer = "0x914d7Fec6aaC8cd542e72Bca78B30650d45643d7"
+treasury = "0x111ffffccccc50c23257b6decf37722a2cfed39b"
+# Timelock proposer multisigs (each becomes PROPOSER_ROLE + CANCELLER_ROLE + DEFAULT_ADMIN_ROLE on their timelock)
+upgrade_multisig = "0x0005afeccccc8c11f4084e1f4330988b2bddde1b"
+controller_admin_multisig = "0x1115afecccc8a04f821cc7c90a5fb14611f7fc83"
+operational_multisig = "0x2225afecccc0f52177369d309fce4187b96bd5d6"
+# Non Create2 dependent
+#       (ok to load from env and change between deployment)
+pauser = "${PAUSER}"
+# Expected timelock addresses (populated by precalculate script)
+expected_cork_pool_manager_impl = "0x1CcCcccCCcCa1dFf04CA58CcDf06804b44d86120"
+expected_cork_pool_manager_proxy = "0xCCCcCccCCCcc1A7c8dF43347BfAA72739817988D"
+expected_timelock_upgrade = "0x7CcCCCccCcc0b4c00d01f321035b8e4523eF8448"
+expected_timelock_controller_admin = "0x7CccCCccccCCe566CdAFFA9EF2CB245Ad5575c3b"
+expected_timelock_operational = "0x7CcCcCCcCccCC1d856F2994A66fAa7011F1A89D9"
+expected_cork_adapter = "0xCCcCcCCCcccCBaD6F772a511B337d9CCc9570407"
+expected_constraint_rate_adapter_impl = "0x1CccCCCcCCC03d893796a8C8512e8f1dA0B81e4a"
+expected_constraint_rate_adapter_proxy = "0xCcCCCCcccCcceD77FE57B59b3bA00B653732d561"
+expected_whitelist_manager_impl = "0x1CcCccccCcCbf45E2516caeE86cef63da120CDAD"
+expected_whitelist_manager_proxy = "0xcCccCcCccCC6e38a2772Eb42D2f408eeB89cb0eE"
+expected_default_cork_controller = "0xcCcCcCccCccbC06627F8aad7aAF13fe3a457f779"
+expected_shares_factory = "0xCCcCcCcccCcc2505EB0E4F93dC8F066CcDA585A1"
+deployed_timelock_upgrade = "0x7CcCCCccCcc0b4c00d01f321035b8e4523eF8448"
+deployed_timelock_controller_admin = "0x7CccCCccccCCe566CdAFFA9EF2CB245Ad5575c3b"
+deployed_timelock_operational = "0x7CcCcCCcCccCC1d856F2994A66fAa7011F1A89D9"
+deployed_constraint_rate_adapter_impl = "0x1CccCCCcCCC03d893796a8C8512e8f1dA0B81e4a"
+deployed_constraint_rate_adapter_proxy = "0xCcCCCCcccCcceD77FE57B59b3bA00B653732d561"
+deployed_whitelist_manager_impl = "0x1CcCccccCcCbf45E2516caeE86cef63da120CDAD"
+deployed_whitelist_manager_proxy = "0xcCccCcCccCC6e38a2772Eb42D2f408eeB89cb0eE"
+deployed_default_cork_controller = "0xcCcCcCccCccbC06627F8aad7aAF13fe3a457f779"
+deployed_cork_pool_manager_impl = "0x1cccccCCccC21e4e0B5c318f9a20774ca8CDbBD5"
+deployed_cork_pool_manager_proxy = "0xcCCCcCcCcCcCDa4e3719Bb026E0B531F11B75417"
+deployed_shares_factory = "0xcCcCccccCcCceBd121535e103aF8e8AFe08811C2"
+deployed_cork_adapter = "0xCCcCcCCCcccCBaD6F772a511B337d9CCc9570407"
+
+[sepolia.uint]
+# Timelock delays (in seconds) - production values
+# 48h = 172800s, 24h = 86400s, 6h = 21600s
+timelock_delay_upgrade = 432000
+timelock_delay_controller_admin = 86400
+timelock_delay_operational = 21600
+# Deployment history
+history_deployment_count = 1
+history_last_deployment_block = 9953695
+
+[sepolia.bytes32]
+constraint_rate_adapter_impl_salt = "0x57213562329896585a570dbc7160dc2985a1628b42ca98c7484b4fbcf1dd35d3"
+constraint_rate_adapter_proxy_salt = "0x974e032a3f4779750add4afd907f0df9f09cbdf6d2ff678e63d6effbc828e81e"
+whitelist_manager_impl_salt = "0xc248830c1fcd27b794bb997bb0aae355399b86182b81621775b7a702c1917968"
+whitelist_manager_proxy_salt = "0x77b5634303ff8ea21bb84d17aa2c9b7cfbb113bbe6577d24b3e8ebeeab5cfcce"
+default_cork_controller_salt = "0x2a5ba99639a5f379fbd82a7961a7758a5f48a44f49026777c7a599807b200ac5"
+cork_pool_manager_impl_salt = "0xdd1e475b1918068795d403eaf7816736f2836af5c8372bb9ea2c54afdc470cfc"
+cork_pool_manager_proxy_salt = "0x39f6fac747110bac77e1b1b4a0a59672741a10d9241a57a147cbc8ac859ca8d4"
+shares_factory_salt = "0xfcf5cf4543702946cc36a71d89960c72ed8477cbb78caac5494b24c54b0c1609"
+cork_adapter_salt = "0x212fafd35b277528fa898ceaadcc917285f4666e2a87556d583e345956860f7d"
+# Timelock salts
+timelock_upgrade_salt = "0x8aa9414c7ebfe485c8a419cd3052fc7e584ca8ff15b1642046f75b74f875ebfe"
+timelock_controller_admin_salt = "0xe0631349db0bdbfbbda9e381e4285c58d13b1d21b5e69ef02b3ab05bf37bd17f"
+timelock_operational_salt = "0xf5beb137ef779088b6d940ae8eaaa53752ad37b14eb76b264281999e352764ed"
+
+# =====================================================
+# Ethereum Mainnet
+# =====================================================
+
+[mainnet]
+endpoint_url = "${MAINNET_RPC_URL}"
+
+[mainnet.address]
+# Chain specific contract address
+bundler3 = "0x6566194141eefa99Af43Bb5Aa71460Ca2Dc90245"
+# Create2 dependent
+#       Shared configuration addresses across all production chains
+#       These should be production multisigs and properly secured addresses
+create2_deployer = "0x914d7Fec6aaC8cd542e72Bca78B30650d45643d7"
+treasury = "0x111ffffccccc50c23257b6decf37722a2cfed39b"
+# Timelock proposer multisigs (each becomes PROPOSER_ROLE + CANCELLER_ROLE + DEFAULT_ADMIN_ROLE on their timelock)
+upgrade_multisig = "0x0005afeccccc8c11f4084e1f4330988b2bddde1b"
+controller_admin_multisig = "0x1115afecccc8a04f821cc7c90a5fb14611f7fc83"
+operational_multisig = "0x2225afecccc0f52177369d309fce4187b96bd5d6"
+pauser = "0x22813ead27855382d2b0ad98de433bad30c08d1f"
+# Expected timelock addresses (populated by precalculate script)
+expected_cork_pool_manager_impl = "0x1CcCcccCCcCa1dFf04CA58CcDf06804b44d86120"
+expected_cork_pool_manager_proxy = "0xCCCcCccCCCcc1A7c8dF43347BfAA72739817988D"
+expected_timelock_upgrade = "0x7CcCCCccCcc0b4c00d01f321035b8e4523eF8448"
+expected_timelock_controller_admin = "0x7CccCCccccCCe566CdAFFA9EF2CB245Ad5575c3b"
+expected_timelock_operational = "0x7CcCcCCcCccCC1d856F2994A66fAa7011F1A89D9"
+expected_cork_adapter = "0xCCcCcCCCcccCBaD6F772a511B337d9CCc9570407"
+expected_constraint_rate_adapter_impl = "0x1CccCCCcCCC03d893796a8C8512e8f1dA0B81e4a"
+expected_constraint_rate_adapter_proxy = "0xCcCCCCcccCcceD77FE57B59b3bA00B653732d561"
+expected_whitelist_manager_impl = "0x1CcCccccCcCbf45E2516caeE86cef63da120CDAD"
+expected_whitelist_manager_proxy = "0xcCccCcCccCC6e38a2772Eb42D2f408eeB89cb0eE"
+expected_default_cork_controller = "0xcCcCcCccCccbC06627F8aad7aAF13fe3a457f779"
+expected_shares_factory = "0xCCcCcCcccCcc2505EB0E4F93dC8F066CcDA585A1"
+# Deployed
+deployed_timelock_upgrade = "0x7CcCCCccCcc0b4c00d01f321035b8e4523eF8448"
+deployed_timelock_controller_admin = "0x7CccCCccccCCe566CdAFFA9EF2CB245Ad5575c3b"
+deployed_timelock_operational = "0x7CcCcCCcCccCC1d856F2994A66fAa7011F1A89D9"
+deployed_constraint_rate_adapter_impl = "0x1CccCCCcCCC03d893796a8C8512e8f1dA0B81e4a"
+deployed_constraint_rate_adapter_proxy = "0xCcCCCCcccCcceD77FE57B59b3bA00B653732d561"
+deployed_whitelist_manager_impl = "0x1CcCccccCcCbf45E2516caeE86cef63da120CDAD"
+deployed_whitelist_manager_proxy = "0xcCccCcCccCC6e38a2772Eb42D2f408eeB89cb0eE"
+deployed_default_cork_controller = "0xcCcCcCccCccbC06627F8aad7aAF13fe3a457f779"
+deployed_cork_pool_manager_impl = "0x1cccccCCccC21e4e0B5c318f9a20774ca8CDbBD5"
+deployed_cork_pool_manager_proxy = "0xcCCCcCcCcCcCDa4e3719Bb026E0B531F11B75417"
+deployed_shares_factory = "0xcCcCccccCcCceBd121535e103aF8e8AFe08811C2"
+deployed_cork_adapter = "0xCCcCcCCCcccCBaD6F772a511B337d9CCc9570407"
+
+[mainnet.uint]
+# Timelock delays (in seconds) - production values
+# 48h = 172800s, 24h = 86400s, 6h = 21600s
+timelock_delay_upgrade = 432000
+timelock_delay_controller_admin = 86400
+timelock_delay_operational = 21600
+# Deployment history
+history_deployment_count = 1
+history_last_deployment_block = 24134616
+
+[mainnet.bytes32]
+constraint_rate_adapter_impl_salt = "0x57213562329896585a570dbc7160dc2985a1628b42ca98c7484b4fbcf1dd35d3"
+constraint_rate_adapter_proxy_salt = "0x974e032a3f4779750add4afd907f0df9f09cbdf6d2ff678e63d6effbc828e81e"
+whitelist_manager_impl_salt = "0xc248830c1fcd27b794bb997bb0aae355399b86182b81621775b7a702c1917968"
+whitelist_manager_proxy_salt = "0x77b5634303ff8ea21bb84d17aa2c9b7cfbb113bbe6577d24b3e8ebeeab5cfcce"
+default_cork_controller_salt = "0x2a5ba99639a5f379fbd82a7961a7758a5f48a44f49026777c7a599807b200ac5"
+cork_pool_manager_impl_salt = "0xdd1e475b1918068795d403eaf7816736f2836af5c8372bb9ea2c54afdc470cfc"
+cork_pool_manager_proxy_salt = "0x39f6fac747110bac77e1b1b4a0a59672741a10d9241a57a147cbc8ac859ca8d4"
+shares_factory_salt = "0xfcf5cf4543702946cc36a71d89960c72ed8477cbb78caac5494b24c54b0c1609"
+cork_adapter_salt = "0x212fafd35b277528fa898ceaadcc917285f4666e2a87556d583e345956860f7d"
+# Timelock salts
+timelock_upgrade_salt = "0x8aa9414c7ebfe485c8a419cd3052fc7e584ca8ff15b1642046f75b74f875ebfe"
+timelock_controller_admin_salt = "0xe0631349db0bdbfbbda9e381e4285c58d13b1d21b5e69ef02b3ab05bf37bd17f"
+timelock_operational_salt = "0xf5beb137ef779088b6d940ae8eaaa53752ad37b14eb76b264281999e352764ed"
