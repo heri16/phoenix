@@ -387,4 +387,28 @@ contract UnwindDepositTests is BaseTest {
         assertEq(actualTokensIn, 1 ether, "Should return 1 ether in fixed-point representation");
         assertGt(actualTokensIn, 0, "Should require some tokens for unwinding");
     }
+
+    function testFuzz_unwindDepositShouldNotRevert_WhenUsingMaxUnwindDepositInput(
+        uint8 _collateralDecimal,
+        uint8 _referenceDecimal,
+        uint256 depositAmount
+    )
+        external
+        __createPoolBounded(1 days, _collateralDecimal, _referenceDecimal)
+        __giveAssets(alice)
+        __approveAllTokens(alice, address(corkPoolManager))
+        __as(alice)
+    {
+        // Bound deposit amount to reasonable values
+        depositAmount = bound(depositAmount, 1 ether, type(uint64).max);
+
+        // Deposit to get cPT and cST shares
+        _deposit(defaultPoolId, depositAmount, alice);
+
+        // Get max unwindable collateral
+        uint256 collateralAssetsOut = corkPoolManager.maxUnwindDeposit(defaultPoolId, alice);
+
+        // should not revert
+        corkPoolManager.unwindDeposit(defaultPoolId, collateralAssetsOut, alice, alice);
+    }
 }

@@ -762,4 +762,38 @@ contract RedeemTests is BaseTest {
         assertEq(userRefAfter - userRefBefore, accruedRef);
         assertEq(principalToken.balanceOf(alice), 0, "Should have no tokens remaining");
     }
+
+    function testFuzz_redeemShouldNotRevert_WhenUsingMaxRedeemInput(
+        uint8 _collateralDecimal,
+        uint8 _referenceDecimal,
+        uint256 depositAmount
+    )
+        external
+        __createPoolBounded(1 days, _collateralDecimal, _referenceDecimal)
+        __giveAssets(alice)
+        __approveAllTokens(alice, address(corkPoolManager))
+        __as(alice)
+    {
+        // Bound deposit amount to reasonable values
+        depositAmount = bound(depositAmount, 1 ether, type(uint64).max);
+
+        // Deposit to get cPT shares
+        _deposit(defaultPoolId, depositAmount, alice);
+
+        uint256 maxExerciseOther = corkPoolManager.maxExerciseOther(defaultPoolId, alice);
+        uint256 exerciseAmount = maxExerciseOther / 2;
+
+        corkPoolManager.exerciseOther(defaultPoolId, exerciseAmount, alice);
+
+        // Warp to after expiry
+        vm.warp(block.timestamp + 2 days);
+
+        // Get max redeemable cPT shares
+        uint256 cptSharesIn = corkPoolManager.maxRedeem(defaultPoolId, alice);
+
+        // The critical assertion: redeem with the max value should not revert
+        if (cptSharesIn > 0) {
+            corkPoolManager.redeem(defaultPoolId, cptSharesIn, alice, alice);
+        }
+    }
 }

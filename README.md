@@ -159,7 +159,7 @@ It's important to note that while you can interact with `CorkPoolManager` direct
 | Contract | Role | Key Features |
 |----------|------|--------------|
 | **CorkAdapter** | Bundler3 integration with user protection | Safe operations with slippage protection, deadline checks, minimum output enforcement, and whitelist validation. Provides protected versions of all core operations (mint, deposit, withdraw, swap, exercise, redeem, and unwinds). |
-| **CompositeRateOracle** | Multi-source oracle aggregation | Combines multiple oracle sources (Chainlink + ERC4626 vaults) for composite rate calculations on yield-bearing assets |
+| **WrapperRateConsumer** | Rate oracle wrapper | Wraps MorphoChainlinkOracleV2 to provide normalized exchange rates between base and quote tokens with decimal adjustment |
 
 ### Interfaces
 
@@ -196,6 +196,8 @@ All core Cork contracts share the same addresses across all deployed chains:
 > **Note**: For Sepolia testnet, Bundler3 is deployed at `0xd43EB38E260bF2d6c9B3222559842686B1C303C0`
 
 For deployment parameters and configuration, see [config/prod.toml](config/prod.toml).
+
+For WrapperRateConsumer oracle deployments, see[config/markets/README.md](config/markets/README.md).
 
 ## Setup
 

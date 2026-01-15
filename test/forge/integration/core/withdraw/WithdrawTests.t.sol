@@ -1062,4 +1062,66 @@ contract WithdrawTests is BaseTest {
         vm.expectRevert(IErrors.InvalidAmount.selector);
         corkPoolManager.previewWithdrawOther(defaultPoolId, 0);
     }
+
+    function testFuzz_withdrawShouldNotRevert_WhenUsingMaxWithdrawInput(
+        uint8 _collateralDecimal,
+        uint8 _referenceDecimal,
+        uint256 depositAmount,
+        bool doSwap
+    )
+        external
+        __createPoolBounded(1 days, _collateralDecimal, _referenceDecimal)
+        __giveAssets(alice)
+        __approveAllTokens(alice, address(corkPoolManager))
+        __as(alice)
+    {
+        // Bound deposit amount to reasonable values
+        depositAmount = bound(depositAmount, 1 ether, type(uint64).max);
+
+        // Deposit to get cPT shares
+        _deposit(defaultPoolId, depositAmount, alice);
+
+        uint256 maxSwappable = corkPoolManager.maxSwap(defaultPoolId, alice);
+        uint256 swapAmount = maxSwappable / 2;
+        corkPoolManager.swap(defaultPoolId, swapAmount, alice);
+
+        // Warp to after expiry
+        vm.warp(block.timestamp + 2 days);
+
+        uint256 collateralAssetsOut = corkPoolManager.maxWithdraw(defaultPoolId, alice);
+
+        // should not revert
+        corkPoolManager.withdraw(defaultPoolId, collateralAssetsOut, alice, alice);
+    }
+
+    function testFuzz_withdrawOtherShouldNotRevert_WhenUsingMaxWithdrawOtherInput(
+        uint8 _collateralDecimal,
+        uint8 _referenceDecimal,
+        uint256 depositAmount
+    )
+        external
+        __createPoolBounded(1 days, _collateralDecimal, _referenceDecimal)
+        __giveAssets(alice)
+        __approveAllTokens(alice, address(corkPoolManager))
+        __as(alice)
+    {
+        // Bound deposit amount to reasonable values
+        depositAmount = bound(depositAmount, 10 ether, type(uint64).max);
+
+        // Deposit to get cPT shares
+        _deposit(defaultPoolId, depositAmount, alice);
+
+        // Do an exerciseOther to add reference assets to the pool
+        uint256 maxExerciseOther = corkPoolManager.maxExerciseOther(defaultPoolId, alice);
+        uint256 exerciseAmount = maxExerciseOther / 2;
+        corkPoolManager.exerciseOther(defaultPoolId, exerciseAmount, alice);
+
+        // Warp to after expiry
+        vm.warp(block.timestamp + 2 days);
+
+        uint256 referenceAssetsOut = corkPoolManager.maxWithdrawOther(defaultPoolId, alice);
+
+        // should not revert
+        corkPoolManager.withdrawOther(defaultPoolId, referenceAssetsOut, alice, alice);
+    }
 }

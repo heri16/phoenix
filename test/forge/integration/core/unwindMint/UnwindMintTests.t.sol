@@ -479,4 +479,28 @@ contract UnwindMintTests is BaseTest {
 
         assertEq(actualCollateralOut, expectedCollateralOut, "Should return correct amount with decimal normalization");
     }
+
+    function testFuzz_unwindMintShouldNotRevert_WhenUsingMaxUnwindMintInput(
+        uint8 _collateralDecimal,
+        uint8 _referenceDecimal,
+        uint256 mintAmount
+    )
+        external
+        __createPoolBounded(1 days, _collateralDecimal, _referenceDecimal)
+        __giveAssets(alice)
+        __approveAllTokens(alice, address(corkPoolManager))
+        __as(alice)
+    {
+        // Bound mint amount to reasonable values (in 18 decimals)
+        mintAmount = bound(mintAmount, 1 ether, type(uint64).max);
+
+        // Mint to get cPT and cST shares
+        corkPoolManager.mint(defaultPoolId, mintAmount, alice);
+
+        // Get max unwindable shares
+        uint256 cptAndCstSharesIn = corkPoolManager.maxUnwindMint(defaultPoolId, alice);
+
+        // should not revert
+        corkPoolManager.unwindMint(defaultPoolId, cptAndCstSharesIn, alice, alice);
+    }
 }

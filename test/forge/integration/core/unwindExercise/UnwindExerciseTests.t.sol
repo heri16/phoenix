@@ -682,4 +682,32 @@ contract UnwindExerciseTests is BaseTest {
         assertEq(previewRefAssetsOut, actualRefAssetsOut, "Preview ref assets out should match actual ref assets out");
         assertEq(previewFee, actualFee, "Preview fee should match actual fee");
     }
+
+    function testFuzz_unwindExerciseShouldNotRevert_WhenUsingMaxUnwindExerciseInput(
+        uint8 _collateralDecimal,
+        uint8 _referenceDecimal,
+        uint256 depositAmount
+    )
+        external
+        __createPoolBounded(1 days, _collateralDecimal, _referenceDecimal)
+        __giveAssets(alice)
+        __approveAllTokens(alice, address(corkPoolManager))
+        __as(alice)
+    {
+        // Bound deposit amount to reasonable values
+        depositAmount = bound(depositAmount, 10 ether, type(uint64).max);
+
+        // Deposit to get cST shares
+        _deposit(defaultPoolId, depositAmount, alice);
+
+        // Exercise to create locked positions
+        uint256 maxExercise = corkPoolManager.maxExercise(defaultPoolId, alice);
+        uint256 exerciseAmount = maxExercise / 2;
+        corkPoolManager.exercise(defaultPoolId, exerciseAmount, alice);
+
+        uint256 cstSharesOut = corkPoolManager.maxUnwindExercise(defaultPoolId, alice);
+
+        // should not revert
+        corkPoolManager.unwindExercise(defaultPoolId, cstSharesOut, alice);
+    }
 }

@@ -614,4 +614,51 @@ contract ExerciseTests is BaseTest {
         assertEq(actualOtherSpent, expectedOtherSpent, "Should spend correct reference assets");
         assertEq(actualFee, expectedFee, "Should have correct fee");
     }
+
+    function testFuzz_exerciseShouldNotRevert_WhenUsingMaxExerciseInput(
+        uint8 _collateralDecimal,
+        uint8 _referenceDecimal,
+        bool lessCst,
+        uint256 depositAmount,
+        uint256 rate
+    )
+        external
+        __createPoolBounded(1 days, _collateralDecimal, _referenceDecimal)
+        __giveAssets(alice)
+        __approveAllTokens(alice, address(corkPoolManager))
+        __as(alice)
+    {
+        // Bound rate to reasonable values
+        rate = bound(rate, 0.4 ether, 1.5 ether);
+        depositAmount = bound(depositAmount, 1 ether, type(uint64).max);
+
+        // Deposit to get CST shares
+        _deposit(defaultPoolId, depositAmount, alice);
+
+        // Set the oracle rate
+        testOracle.setRate(rate);
+
+        uint8 cstDecimals = 18; // CST shares are always 18 decimals
+        uint8 refDecimals = referenceAsset.decimals();
+        uint256 refBalance = referenceAsset.balanceOf(alice);
+        uint256 cstBalance = swapToken.balanceOf(alice);
+
+        // Create edge case by keeping only a small amount of one token
+        uint256 toKeep = bound(uint256(0.001 ether), 0.001 ether, 0.005 ether);
+
+        if (lessCst) {
+            // Transfer CST so that the balance of CST is really small
+            swapToken.transfer(address(2), cstBalance - toKeep);
+        } else {
+            // Transfer ref so that the balance of ref is really small
+            uint256 refToKeep = TransferHelper.fixedToTokenNativeDecimals(toKeep, refDecimals);
+            referenceAsset.transfer(address(2), refBalance - refToKeep);
+        }
+
+        // Get max exercisable CST shares
+        uint256 cstSharesIn = corkPoolManager.maxExercise(defaultPoolId, alice);
+
+        // should not revert
+        corkPoolManager.exercise(defaultPoolId, cstSharesIn, alice);
+    }
 }

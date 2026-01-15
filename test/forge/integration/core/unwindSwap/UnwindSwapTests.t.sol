@@ -675,4 +675,33 @@ contract UnwindSwapTests is BaseTest {
         uint256 maxAmount = corkPoolManager.maxUnwindSwap(defaultPoolId, alice);
         assertEq(maxAmount, 0, "Should return 0 when pool has zero swap token balance");
     }
+
+    function testFuzz_unwindSwapShouldNotRevert_WhenUsingMaxUnwindSwapInput(
+        uint8 _collateralDecimal,
+        uint8 _referenceDecimal,
+        uint256 depositAmount
+    )
+        external
+        __createPoolBounded(1 days, _collateralDecimal, _referenceDecimal)
+        __giveAssets(alice)
+        __approveAllTokens(alice, address(corkPoolManager))
+        __as(alice)
+    {
+        // Bound deposit amount to reasonable values
+        depositAmount = bound(depositAmount, 10 ether, type(uint64).max);
+
+        // Deposit to get cST shares
+        _deposit(defaultPoolId, depositAmount, alice);
+
+        // Swap to create locked positions
+        uint256 maxSwap = corkPoolManager.maxSwap(defaultPoolId, alice);
+        uint256 swapAmount = maxSwap / 2;
+        corkPoolManager.swap(defaultPoolId, swapAmount, alice);
+
+        // Get max unwindable collateral assets
+        uint256 collateralAssetsIn = corkPoolManager.maxUnwindSwap(defaultPoolId, alice);
+
+        // should not revert
+        corkPoolManager.unwindSwap(defaultPoolId, collateralAssetsIn, alice);
+    }
 }
