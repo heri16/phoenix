@@ -1,0 +1,117 @@
+# Network section 
+[49220]
+# Required: RPC URL for forking (use environment variable)
+endpoint_url = "${FORK_URL}"
+
+[49220.string]
+evm_version = "cancun"
+
+# =====================================================
+# UINT CONFIGURATION
+# =====================================================
+[49220.uint]
+# Required: Block number to fork at (use environment variable)
+fork_block_number = "${FORK_BLOCK_NUMBER}"
+
+# Token decimal bounds for validation
+acceptable_decimals_max = 18
+acceptable_decimals_min = 6
+
+# Market parameters
+expected_expiry_timestamp = 1775965870
+expected_rate_min_bound = 764107665100000000 # 0.7641076651e18
+expected_rate_max_bound = 825751500700000000 # 0.8257515007e18
+expected_rate_change_per_day_max = 684900000000000 # 0.0006849e18
+expected_rate_change_capacity_max = 4794500000000000 # 0.0047945e18
+
+# Oracle parameters
+expected_oracle_rate = 824673363473840229 # 0.8257515007e18
+expected_oracle_decimals = 18
+
+# Fee percentages (in WAD, e.g., 1 ether = 100%)
+expected_unwind_swap_fee_percentage = 50000000000000000 # 0.05e18
+expected_swap_fee_percentage = 50000000000000000 # 0.05e18
+
+# Swap preview parameters
+expected_cst_shares_swap_amount_in = 1000500250000000000 # 1.00050025e18
+expected_reference_swap_amount_in = 1213207 # 1.211623896e6
+expected_collateral_swap_amount_out = 1000000000000000000 # 1e18
+expected_swap_fee = 500250000000000 # 0.00050025e18
+
+# Exercise preview parameters
+expected_cst_shares_exercise_amount_in = 1000500250000000000 # 1.00050025e18
+expected_collateral_exercise_amount_out = 1000000000000000000 # 1e18
+expected_reference_exercise_amount_in = 1213207 # 1.211623896e6
+# 12116238
+expected_exercise_fee = 500250000000000 # 0.00050025e18
+
+# ExerciseOther preview parameters
+expected_reference_exercise_other_amount_in = 1213207 # 1.211623896e6
+expected_collateral_exercise_other_amount_out = 1000000000000000000 # 1e18
+expected_cst_shares_exercise_other_amount_in = 1000500250000000000 # 1.00050025e18
+expected_exercise_other_fee = 500250000000000 # 0.00050025e18
+
+# UnwindSwap preview parameters (at t=0)
+expected_collateral_unwind_swap_amount_in = 1000500250000000000 # 1.00050025e18
+expected_cst_shares_unwind_swap_amount_out = 1000000000000000000 # 1e18
+expected_reference_unwind_swap_amount_out = 1212601 # 1.211018084e6
+expected_unwind_swap_fee_initial = 500250000000000 # 0.00050025e18
+
+# UnwindSwap preview parameters (at 30% before expiry)
+expected_collateral_unwind_swap_amount_in_before_expiry = 1000150023000000000 # 1.000150023e18
+expected_cst_shares_unwind_swap_amount_out_before_expiry = 1000000000000000000 # 1e18
+expected_reference_unwind_swap_amount_out_before_expiry = 1212601 # 1.211018084e6
+expected_collateral_unwind_swap_fee_before_expiry = 150023000000000 # 0.000150023e18
+
+# UnwindExercise preview parameters (at t=0)
+expected_cst_shares_unwind_exercise_amount_out = 1000000000000000000 # 1e18
+expected_collateral_unwind_exercise_amount_in = 1000500250000000000 # 1.00050025e18
+expected_reference_unwind_exercise_amount_out = 1212601 # 1.211018084e6
+expected_collateral_unwind_exercise_fee = 500250000000000 # 0.00050025e18
+
+# UnwindExercise preview parameters (at 30% before expiry)
+expected_cst_shares_unwind_exercise_amount_out_before_expiry = 1000000000000000000 # 1e18
+expected_collateral_unwind_exercise_amount_in_before_expiry = 1000150023000000000 # 1.000150023e18
+expected_reference_unwind_exercise_amount_out_before_expiry = 1212601 # 1.211018084e6
+expected_collateral_unwind_exercise_fee_before_expiry = 150023000000000 # 0.000150023e18
+
+# UnwindExerciseOther preview parameters (at t=0)
+expected_reference_unwind_exercise_other_amount_out = 1212601 # 1.211018084e6
+expected_collateral_unwind_exercise_other_amount_in = 1000500250000000000 # 1.00050025e18
+expected_cst_shares_unwind_exercise_other_amount_out = 1000000000000000000 # 1e18
+expected_collateral_unwind_exercise_other_fee = 500250000000000 # 0.00050025e18
+
+# UnwindExerciseOther preview parameters (at 30% before expiry)
+expected_reference_unwind_exercise_other_amount_out_before_expiry = 1212601 # 1.211018084e6
+expected_collateral_unwind_exercise_other_amount_in_before_expiry = 1000150023000000000 # 1.000150023e18
+expected_cst_shares_unwind_exercise_other_amount_out_before_expiry = 1000000000000000000 # 1e18
+expected_collateral_unwind_exercise_other_fee_before_expiry = 150023000000000 # 0.000150023e18
+
+# =====================================================
+# ADDRESS CONFIGURATION
+# =====================================================
+[49220.address]
+# Core protocol contracts
+cork_pool_manager = "0x980E6D41cec91863C056102CbE2401c6BC75121F"
+shares_factory = "0x99670da8F1CDD508F6641e6A2417221B6C23C41E"
+default_cork_controller = "0xB51708E6fF5802ad90B207c2E5032F5F419ad955"
+constraint_rate_adapter = "0x882983f7ECD38Cb7Bbaa51B88816E1E6DAb1b8AE"
+oracle_address = "0xEfd1c7E141F2ff523eD3F5A9A3E593807ADB275E"
+whitelist_manager = "0xE3d818F483689b61ac452a08dD55E7255782e5a4"
+
+# Address with pool creator role (for creating new pools during test)
+pool_creator_address = "0x557177EaE46B648518664cc4D7feCFA5eF777277"
+
+# Expected market token addresses
+expected_collateral_address = "0x9D39A5DE30e57443BfF2A8307A4256c8797A3497"
+expected_reference_address = "0x53E82ABbb12638F09d9e624578ccB666217a765e"
+
+# Addresses expected to be whitelisted (empty array if none)
+expected_whitelisted_addresses = []
+
+# =====================================================
+# BOOL CONFIGURATION
+# =====================================================
+[49220.bool]
+# Whether whitelist is expected to be enabled for this market
+expected_whitelist_enabled = true

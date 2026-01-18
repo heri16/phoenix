@@ -1,0 +1,126 @@
+# =====================================================
+# Cork Protocol - Smoke Test Configuration
+# =====================================================
+# Naming convention: smoke-{id}-{reference}-{collateral}.toml
+# Examples:
+#   - smoke-00-vbUSDC-sUSDe.toml
+# =====================================================
+
+# REPLACE all chain-id with actual testnet chain id. this could be sepolia, tenderly, etc.
+
+# Network section 
+[chain-id]
+# Required: RPC URL for forking (use environment variable)
+endpoint_url = "${FORK_URL}"
+
+[chain-id.string]
+evm_version = "cancun"
+
+# =====================================================
+# UINT CONFIGURATION
+# =====================================================
+[chain-id.uint]
+# Required: Block number to fork
+fork_block_number = 0
+
+# Token decimal bounds for validation
+acceptable_decimals_max = 18
+acceptable_decimals_min = 6
+
+# Market parameters
+expected_expiry_timestamp = 0
+expected_rate_min_bound = 0
+expected_rate_max_bound = 0
+expected_rate_change_per_day_max = 0
+expected_rate_change_capacity_max = 0
+
+# Oracle parameters
+expected_oracle_rate = 0
+expected_oracle_decimals = 18
+
+# Fee percentages (in WAD, e.g., 1 ether = 100%)
+expected_unwind_swap_fee_percentage = 0
+expected_swap_fee_percentage = 0
+
+# Swap preview parameters
+expected_cst_shares_swap_amount_in = 0
+expected_reference_swap_amount_in = 0
+expected_collateral_swap_amount_out = 0
+expected_swap_fee = 0
+
+# Exercise preview parameters
+expected_cst_shares_exercise_amount_in = 0
+expected_collateral_exercise_amount_out = 0
+expected_reference_exercise_amount_in = 0
+expected_exercise_fee = 0
+
+# ExerciseOther preview parameters
+expected_reference_exercise_other_amount_in = 0
+expected_collateral_exercise_other_amount_out = 0
+expected_cst_shares_exercise_other_amount_in = 0
+expected_exercise_other_fee = 0
+
+# UnwindSwap preview parameters (at t=0)
+expected_collateral_unwind_swap_amount_in = 0
+expected_cst_shares_unwind_swap_amount_out = 0
+expected_reference_unwind_swap_amount_out = 0
+expected_unwind_swap_fee_initial = 0
+
+# UnwindSwap preview parameters (at 30% before expiry)
+expected_collateral_unwind_swap_amount_in_before_expiry = 0
+expected_cst_shares_unwind_swap_amount_out_before_expiry = 0
+expected_reference_unwind_swap_amount_out_before_expiry = 0
+expected_collateral_unwind_swap_fee_before_expiry = 0
+
+# UnwindExercise preview parameters (at t=0)
+expected_cst_shares_unwind_exercise_amount_out = 0
+expected_collateral_unwind_exercise_amount_in = 0
+expected_reference_unwind_exercise_amount_out = 0
+expected_collateral_unwind_exercise_fee = 0
+
+# UnwindExercise preview parameters (at 30% before expiry)
+expected_cst_shares_unwind_exercise_amount_out_before_expiry = 0
+expected_collateral_unwind_exercise_amount_in_before_expiry = 0
+expected_reference_unwind_exercise_amount_out_before_expiry = 0
+expected_collateral_unwind_exercise_fee_before_expiry = 0
+
+# UnwindExerciseOther preview parameters (at t=0)
+expected_reference_unwind_exercise_other_amount_out = 0
+expected_collateral_unwind_exercise_other_amount_in = 0
+expected_cst_shares_unwind_exercise_other_amount_out = 0
+expected_collateral_unwind_exercise_other_fee = 0
+
+# UnwindExerciseOther preview parameters (at 30% before expiry)
+expected_reference_unwind_exercise_other_amount_out_before_expiry = 0
+expected_collateral_unwind_exercise_other_amount_in_before_expiry = 0
+expected_cst_shares_unwind_exercise_other_amount_out_before_expiry = 0
+expected_collateral_unwind_exercise_other_fee_before_expiry = 0
+
+# =====================================================
+# ADDRESS CONFIGURATION
+# =====================================================
+[chain-id.address]
+# Core protocol contracts
+cork_pool_manager = "0x0000000000000000000000000000000000000000"
+shares_factory = "0x0000000000000000000000000000000000000000"
+default_cork_controller = "0x0000000000000000000000000000000000000000"
+constraint_rate_adapter = "0x0000000000000000000000000000000000000000"
+oracle_address = "0x0000000000000000000000000000000000000000"
+whitelist_manager = "0x0000000000000000000000000000000000000000"
+
+# Address with pool creator role (for creating new pools during test)
+pool_creator_address = "0x0000000000000000000000000000000000000000"
+
+# Expected market token addresses
+expected_collateral_address = "0x0000000000000000000000000000000000000000"
+expected_reference_address = "0x0000000000000000000000000000000000000000"
+
+# Addresses expected to be whitelisted (empty array if none)
+expected_whitelisted_addresses = []
+
+# =====================================================
+# BOOL CONFIGURATION
+# =====================================================
+[chain-id.bool]
+# Whether whitelist is expected to be enabled for this market
+expected_whitelist_enabled = false
