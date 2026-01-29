@@ -179,18 +179,24 @@ All core Cork contracts share the same addresses across all deployed chains:
 
 | Contract | Address |
 |----------|---------|
-| CorkPoolManager | `TBD` |
-| WhitelistManager | `TBD` |
-| ConstraintRateAdapter | `TBD` |
-| SharesFactory | `TBD` |
-| DefaultCorkController | `TBD` |
-| CorkAdapter | `TBD` |
+| CorkPoolManager | [`0xccCCcCcCCccCfAE2Ee43F0E727A8c2969d74B9eC`](https://www.blockscout.com/search?q=0xccCCcCcCCccCfAE2Ee43F0E727A8c2969d74B9eC&tab=addresses) |
+| CorkAdapter | [`0xCCcCcCCCcccCBaD6F772a511B337d9CCc9570407`](https://www.blockscout.com/search?q=0xCCcCcCCCcccCBaD6F772a511B337d9CCc9570407&tab=addresses) |
+| DefaultCorkController | [`0xcCcCcCccCccbC06627F8aad7aAF13fe3a457f779`](https://www.blockscout.com/search?q=0xcCcCcCccCccbC06627F8aad7aAF13fe3a457f779&tab=addresses) |
+| WhitelistManager | [`0xcCccCcCccCC6e38a2772Eb42D2f408eeB89cb0eE`](https://www.blockscout.com/search?q=0xcCccCcCccCC6e38a2772Eb42D2f408eeB89cb0eE&tab=addresses) |
+| ConstraintRateAdapter | [`0xCCcCcCcccCccEF378949D1a61ED2283C831AF03A`](https://www.blockscout.com/search?q=0xCCcCcCcccCccEF378949D1a61ED2283C831AF03A&tab=addresses) |
+| SharesFactory | [`0xcCCCccCCCcCc1782617fe14A386AC910a20D4324`](https://www.blockscout.com/search?q=0xcCCCccCCCcCc1782617fe14A386AC910a20D4324&tab=addresses) |
+| CorkPoolManager implementation | [`0x1cCccCccCcCf9A60Fe57cd7CEf504d1DaaA78244`](https://www.blockscout.com/search?q=0x1cCccCccCcCf9A60Fe57cd7CEf504d1DaaA78244&tab=addresses) |
+| ConstraintRateAdapter implementation | [`0x1CcCCccCCcca9Cc3446B235af1C4cb8E2B01236E`](https://www.blockscout.com/search?q=0x1CcCCccCCcca9Cc3446B235af1C4cb8E2B01236E&tab=addresses) |
+| WhitelistManager implementation | [`0x1CcCccccCcCbf45E2516caeE86cef63da120CDAD`](https://www.blockscout.com/search?q=0x1CcCccccCcCbf45E2516caeE86cef63da120CDAD&tab=addresses) |
+| Timelock Upgrade | [`0x7CcCCCccCcc0b4c00d01f321035b8e4523eF8448`](https://www.blockscout.com/search?q=0x7CcCCCccCcc0b4c00d01f321035b8e4523eF8448&tab=addresses) |
+| Timelock Admin | [`0x7CccCCccccCCe566CdAFFA9EF2CB245Ad5575c3b`](https://www.blockscout.com/search?q=0x7CccCCccccCCe566CdAFFA9EF2CB245Ad5575c3b&tab=addresses) |
+| Timelock Operational | [`0x7CcCcCCcCccCC1d856F2994A66fAa7011F1A89D9`](https://www.blockscout.com/search?q=0x7CcCcCCcCccCC1d856F2994A66fAa7011F1A89D9&tab=addresses) |
 
 ### External Dependencies
 
 | Contract | Address |
 |----------|:-------:|
-| Permit2  | `0x000000000022D473030F116dDEE9F6B43aC78BA3` |
+| Permit2  | [`0x000000000022D473030F116dDEE9F6B43aC78BA3`](https://www.blockscout.com/search?q=0x000000000022D473030F116dDEE9F6B43aC78BA3) |
 | Morpho Bundler3 | See [Morpho Addresses](https://docs.morpho.org/get-started/resources/addresses/#bundlers) |
 
 > **Note**: For Sepolia testnet, Bundler3 is deployed at `0xd43EB38E260bF2d6c9B3222559842686B1C303C0`
@@ -201,7 +207,7 @@ For WrapperRateConsumer oracle deployments, see[config/markets/README.md](config
 
 ## Setup
 
-For detailed setup, build, and test instructions, see [USAGE.md](USAGE.md).
+For detailed setup, build, and test instructions, see [DEVELOPMENT.md](DEVELOPMENT.md).
 
 ## Testing
 
@@ -255,7 +261,7 @@ See the [LICENSE](LICENSE) file for details. Individual contracts may have speci
 
 ## Resources
 
-Find a complete development guide at [USAGE.md](USAGE.md)
+Find a complete development guide at [DEVELOPMENT.md](DEVELOPMENT.md)
 
 ## Inspirations & Sources
 

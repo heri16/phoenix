@@ -10,6 +10,7 @@ import {ISharesFactory} from "contracts/interfaces/ISharesFactory.sol";
 import {IWhitelistManager} from "contracts/interfaces/IWhitelistManager.sol";
 import {Config} from "forge-std/Config.sol";
 import {Test} from "forge-std/Test.sol";
+import {console2} from "forge-std/console2.sol";
 
 abstract contract SmokeBase is Test, Config {
     string internal EVM_VERSION;
@@ -315,5 +316,124 @@ abstract contract SmokeBase is Test, Config {
         if (!isForRef && refDecimals > collateralDecimals) return 1;
 
         return 1;
+    }
+
+    function _formatPercentage(uint256 value) internal pure returns (string memory) {
+        uint256 percentageScaled = value * 100;
+        uint256 wholePart = percentageScaled / 1e18;
+        uint256 decimalPart = percentageScaled % 1e18;
+
+        if (decimalPart == 0) {
+            return string.concat(vm.toString(wholePart), "%");
+        }
+
+        uint256 leadingZeros = 18 - _countDigits(decimalPart);
+
+        while (decimalPart > 0 && decimalPart % 10 == 0) {
+            decimalPart = decimalPart / 10;
+        }
+
+        string memory decimalStr = "";
+        for (uint256 i = 0; i < leadingZeros; i++) {
+            decimalStr = string.concat(decimalStr, "0");
+        }
+        decimalStr = string.concat(decimalStr, vm.toString(decimalPart));
+
+        return string.concat(vm.toString(wholePart), ".", decimalStr, "%");
+    }
+
+    function _formatRate(uint256 value) internal pure returns (string memory) {
+        uint256 wholePart = value / 1e18;
+        uint256 decimalPart = value % 1e18;
+
+        if (decimalPart == 0) {
+            return string.concat(vm.toString(wholePart), ".0");
+        }
+
+        uint256 leadingZeros = 18 - _countDigits(decimalPart);
+
+        while (decimalPart > 0 && decimalPart % 10 == 0) {
+            decimalPart = decimalPart / 10;
+        }
+
+        string memory decimalStr = "";
+        for (uint256 i = 0; i < leadingZeros; i++) {
+            decimalStr = string.concat(decimalStr, "0");
+        }
+        decimalStr = string.concat(decimalStr, vm.toString(decimalPart));
+
+        return string.concat(vm.toString(wholePart), ".", decimalStr);
+    }
+
+    function _formatEther(uint256 value) internal pure returns (string memory) {
+        uint256 wholePart = value / 1e18;
+        uint256 decimalPart = value % 1e18;
+
+        if (decimalPart == 0) {
+            return string.concat(vm.toString(wholePart), ".0");
+        }
+
+        uint256 leadingZeros = 18 - _countDigits(decimalPart);
+
+        while (decimalPart > 0 && decimalPart % 10 == 0) {
+            decimalPart = decimalPart / 10;
+        }
+
+        string memory decimalStr = "";
+        for (uint256 i = 0; i < leadingZeros; i++) {
+            decimalStr = string.concat(decimalStr, "0");
+        }
+        decimalStr = string.concat(decimalStr, vm.toString(decimalPart));
+
+        return string.concat(vm.toString(wholePart), ".", decimalStr);
+    }
+
+    function _countDigits(uint256 value) internal pure returns (uint256) {
+        if (value == 0) return 1;
+        uint256 digits = 0;
+        while (value > 0) {
+            digits++;
+            value /= 10;
+        }
+        return digits;
+    }
+
+    function _logDelta(uint256 actual, uint256 expected, uint256 deltaVal) internal pure {
+        if (actual != expected) {
+            uint256 diff = actual > expected ? actual - expected : expected - actual;
+
+            console2.log(
+                string.concat(
+                    "    Delta: ",
+                    vm.toString(diff),
+                    " ",
+                    _toScientific(diff),
+                    "(tolerance: ",
+                    vm.toString(deltaVal),
+                    " ",
+                    _toScientific(deltaVal),
+                    ")"
+                )
+            );
+        }
+    }
+
+    function _toScientific(uint256 value) internal pure returns (string memory) {
+        if (value == 0) return "(0)";
+
+        uint256 exponent = 0;
+        uint256 temp = value;
+
+        // Count trailing zeros
+        while (temp > 0 && temp % 10 == 0) {
+            exponent++;
+            temp = temp / 10;
+        }
+
+        if (exponent == 0) {
+            return "";
+        }
+
+        return string.concat("(", vm.toString(temp), "e", vm.toString(exponent), ")");
     }
 }
