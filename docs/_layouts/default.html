@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{ page.title | default: site.title }}</title>
+  <link rel="stylesheet" href="{{ '/assets/css/style.css' | relative_url }}">
+</head>
+<body>
+  <nav class="site-nav">
+    <div class="nav-inner">
+      <a class="nav-brand" href="{{ '/' | relative_url }}">Cork Phoenix</a>
+      <div class="nav-links">
+        <a href="{{ '/live-deployments' | relative_url }}"{% if page.url contains 'live-deployments' %} class="active"{% endif %}>Live</a>
+        <a href="{{ '/testnet-deployments' | relative_url }}"{% if page.url contains 'testnet-deployments' %} class="active"{% endif %}>Testnet</a>
+      </div>
+    </div>
+  </nav>
+  <main class="site-main">
+    <div class="container">
+      {{ content }}
+    </div>
+  </main>
+  <footer class="site-footer">
+    <div class="container">
+      <p>Cork Protocol &middot; <a href="https://cork.tech" target="_blank" rel="noopener">cork.tech</a></p>
+    </div>
+  </footer>
+  <script>
+    document.addEventListener('click', function(e) {
+      var btn = e.target.closest('[data-copy]');
+      if (!btn) return;
+      var text = btn.getAttribute('data-copy');
+      navigator.clipboard.writeText(text).then(function() {
+        var orig = btn.textContent;
+        btn.textContent = 'Copied!';
+        setTimeout(function() { btn.textContent = orig; }, 1500);
+      });
+    });
+  </script>
+</body>
+</html>

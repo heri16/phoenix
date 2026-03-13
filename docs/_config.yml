@@ -1,0 +1,23 @@
+title: "Cork Phoenix — Contract Deployments"
+description: "Deployed smart contract addresses for Cork Protocol"
+baseurl: "/phoenix"
+url: "https://cork-technology.github.io"
+
+markdown: kramdown
+plugins: []
+
+sass:
+  style: compressed
+
+exclude:
+  - scripts/
+  - Gemfile
+  - Gemfile.lock
+  - node_modules/
+  - vendor/
+
+defaults:
+  - scope:
+      path: ""
+    values:
+      layout: "default"

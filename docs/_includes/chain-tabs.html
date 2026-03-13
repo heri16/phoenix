@@ -1,0 +1,48 @@
+{% assign chains = site.data.chains | where: "type", include.chain_type | sort: "tab_order" %}
+{% if chains.size == 0 %}
+<p>No chains configured for this deployment type.</p>
+{% else %}
+<div class="chain-tabs">
+  <div class="tab-list" role="tablist">
+    {% for chain in chains %}
+    <button class="tab-btn{% if forloop.first %} active{% endif %}"
+            role="tab"
+            data-tab="{{ chain.id }}"
+            aria-selected="{% if forloop.first %}true{% else %}false{% endif %}">
+      {{ chain.name }}
+    </button>
+    {% endfor %}
+  </div>
+  {% for chain in chains %}
+  <div class="tab-panel{% if forloop.first %} active{% endif %}"
+       id="tab-{{ chain.id }}"
+       role="tabpanel"
+       aria-hidden="{% if forloop.first %}false{% else %}true{% endif %}">
+    {% include contract-table.html chain=chain %}
+  </div>
+  {% endfor %}
+</div>
+<script>
+  (function() {
+    var tabs = document.querySelectorAll('.tab-btn');
+    tabs.forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        var id = this.getAttribute('data-tab');
+        document.querySelectorAll('.tab-btn').forEach(function(b) {
+          b.classList.remove('active');
+          b.setAttribute('aria-selected', 'false');
+        });
+        document.querySelectorAll('.tab-panel').forEach(function(p) {
+          p.classList.remove('active');
+          p.setAttribute('aria-hidden', 'true');
+        });
+        this.classList.add('active');
+        this.setAttribute('aria-selected', 'true');
+        var panel = document.getElementById('tab-' + id);
+        panel.classList.add('active');
+        panel.setAttribute('aria-hidden', 'false');
+      });
+    });
+  })();
+</script>
+{% endif %}

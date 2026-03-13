@@ -1,0 +1,21 @@
+- id: mainnet
+  name: "Ethereum Mainnet"
+  chain_id: 1
+  type: live
+  tab_order: 1
+  explorers:
+    etherscan: "https://etherscan.io/address/{address}"
+    blockscout: "https://eth.blockscout.com/address/{address}"
+    sourcify: "https://repo.sourcify.dev/1/{address}"
+    ethereum_org: "https://remix.ethereum.org/?#activate=contract-verification&call=contract-verification//lookupAndSave//sourcify//1//{address}"
+
+- id: sepolia
+  name: "Ethereum Sepolia"
+  chain_id: 11155111
+  type: testnet
+  tab_order: 1
+  explorers:
+    etherscan: "https://sepolia.etherscan.io/address/{address}"
+    blockscout: "https://eth-sepolia.blockscout.com/address/{address}"
+    sourcify: "https://repo.sourcify.dev/11155111/{address}"
+    ethereum_org: "https://remix.ethereum.org/?#activate=contract-verification&call=contract-verification//lookupAndSave//sourcify//11155111//{address}"

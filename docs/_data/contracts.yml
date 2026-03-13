@@ -1,0 +1,90 @@
+groups:
+  - key: user_facing
+    name: "User-Facing"
+    order: 1
+  - key: governance
+    name: "Governance & Access Control"
+    order: 2
+  - key: market_internals
+    name: "Market Internals & Infrastructure"
+    order: 3
+  - key: internal
+    name: "Internal Infrastructure"
+    order: 4
+  - key: source_reference
+    name: "Source Reference"
+    order: 5
+
+contracts:
+  # User-Facing
+  - name: "Cork Pool Manager"
+    group: user_facing
+    labels: [singleton, pool-manager, upgradeable-proxy]
+    description: "Singleton pool manager for all Cork pools — deposit, mint, swap, exercise, redeem"
+    proxy_key: deployed_cork_pool_manager_proxy
+    impl_key: deployed_cork_pool_manager_impl
+
+  - name: "Cork Adapter"
+    group: user_facing
+    labels: [periphery, multicall]
+    description: "Safe operations wrapper with slippage protection and deadline checks"
+    address_key: deployed_cork_adapter
+
+  # Governance & Access Control
+  - name: "Default Cork Controller"
+    group: governance
+    labels: [governance, access-control]
+    description: "Protocol-level configuration, pausing, and role management"
+    address_key: deployed_default_cork_controller
+
+  - name: "Whitelist Manager"
+    group: governance
+    labels: [access-control, upgradeable-proxy]
+    description: "Global and per-market whitelisting for gated access"
+    proxy_key: deployed_whitelist_manager_proxy
+    impl_key: deployed_whitelist_manager_impl
+
+  - name: "Timelock Upgrade"
+    group: governance
+    labels: [timelock]
+    description: "Controls contract upgrade proposals (longest delay)"
+    address_key: deployed_timelock_upgrade
+
+  - name: "Timelock Controller Admin"
+    group: governance
+    labels: [timelock]
+    description: "Controls admin role changes on DefaultCorkController"
+    address_key: deployed_timelock_controller_admin
+
+  - name: "Timelock Operational"
+    group: governance
+    labels: [timelock]
+    description: "Controls day-to-day operational parameter changes (shortest delay)"
+    address_key: deployed_timelock_operational
+
+  # Market Internals & Infrastructure
+  - name: "Shares Factory"
+    group: market_internals
+    labels: [factory]
+    description: "Deploys cPT and cST token pairs per market"
+    address_key: deployed_shares_factory
+
+  - name: "Constraint Rate Adapter"
+    group: market_internals
+    labels: [oracle, rate-limiter, upgradeable-proxy]
+    description: "Rate clamping to guard against oracle manipulation — used by market deployers"
+    proxy_key: deployed_constraint_rate_adapter_proxy
+    impl_key: deployed_constraint_rate_adapter_impl
+
+  # Source Reference
+  - name: "PoolShare"
+    group: source_reference
+    labels: [token, ERC-20, ERC-2612]
+    description: "ERC-20 token implementation for cPT and cST pool share tokens"
+    source_url: "https://github.com/Cork-Technology/phoenix/blob/main/contracts/core/assets/PoolShare.sol"
+
+  - name: "WrapperRateConsumer"
+    group: source_reference
+    labels: [oracle, wrapper]
+    description: "Wraps MorphoChainlinkOracleV2 for normalized exchange rates"
+    source_url: "https://github.com/Cork-Technology/phoenix/blob/main/contracts/periphery/WrapperRateConsumer.sol"

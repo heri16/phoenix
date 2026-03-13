@@ -1,0 +1,15 @@
+{% assign placeholder = '{address}' %}
+<div class="explorer-links">
+  <a href="{{ include.chain.explorers.etherscan | replace: placeholder, include.address }}" target="_blank" rel="noopener" title="Etherscan">
+    <img src="{{ '/assets/img/etherscan.svg' | relative_url }}" alt="Etherscan" width="18" height="18">
+  </a>
+  <a href="{{ include.chain.explorers.blockscout | replace: placeholder, include.address }}" target="_blank" rel="noopener" title="Blockscout">
+    <img src="{{ '/assets/img/blockscout.svg' | relative_url }}" alt="Blockscout" width="18" height="18">
+  </a>
+  <a href="{{ include.chain.explorers.sourcify | replace: placeholder, include.address }}" target="_blank" rel="noopener" title="Sourcify">
+    <img src="{{ '/assets/img/sourcify.svg' | relative_url }}" alt="Sourcify" width="18" height="18">
+  </a>
+  <a href="{{ include.chain.explorers.ethereum_org | replace: placeholder, include.address }}" target="_blank" rel="noopener" title="Ethereum.org Verify">
+    <img src="{{ '/assets/img/ethereum-org.svg' | relative_url }}" alt="Ethereum.org" width="18" height="18">
+  </a>
+</div>
